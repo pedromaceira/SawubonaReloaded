@@ -14,10 +14,12 @@ Tras realizar las pruebas con YOLO y con OpenCV, se sigue con la opción de YOLO
 
 ### Estructura del repositorio:
 Novedad en este sprint. La idea es juntar los archivos y recursos por carpetas de manera que quede todo bien estructurado. Inicialmente, los posibles apartados podrían ser:
--	/src: archivos del backend, todo lo encargado de realizar el servicio de procesamiento y de base de datos. Aquí iría también el “requirements.txt”.
+-	/src: archivos del backend, todo lo encargado de realizar el servicio de procesamiento y de base de datos.
 -	/modelos: archivos pesados de los diferentes modelos (tanto de YOLO como de detección de emociones).
 -	/frontend: todo lo relacionado con el cliente (HTML, CSS, JS, etcétera)
--	/documentación: archivos de documentación, como puede ser este mismo documento.
+-	/documentacion: archivos de documentación, como puede ser este mismo documento.
+
+Esta es la idea inicial, pero unos apartados más adelante decidiremos cual será la estructura para comenzar el proyecto.
 
 ### Evaluación de servidores para procesar backend
 Tras preguntar si sería posible utilizar los recursos que ofrece la USC, me comentaron que podía hacer uso del CESGA, lo cual proporciona potencia suficiente como para procesar el backend de esta aplicación. 
@@ -34,3 +36,14 @@ Pese a que tiene una mayor complejidad, tras analizar las opciones se eligió el
 
 ### Estructura del proyecto y migración del POC actual:
 Como se comentaba anteriormente, la estructura del proyecto debe actualizarse según la arquitectura elegida. Por ello, en este sprint se pasa a estructurar de manera correcta el proyecto (además de su incorporación al repositorio), en lugar de la situación de pruebas utilizada en el sprint anterior.
+Para comenzar, se crea la carpeta en local con la estructura deseada. Tras añadir archivos en todas las carpetas para poder visualizar correctamente la estructura en el GitLab, se crea la rama Main y se suben.
+También se crea y activa un entorno virtual (envTFG) para garantizar la portabilidad de las librerías al servidor del CESGA, entre otras cosas. 
+Se implementa el archivo .gitignore para evitar la subida de ciertos archivos al hacer los push (binarios, temporales o muy pesados).
+Las carpetas en las que se estructura inicialmente el proyecto son:
+- backend: parte del servidor
+- frontend: parte del cliente
+- modelos: para almacenar los diferentes modelos
+- docs: documentación en formato Markdown
+- tests: para realizar pruebas posteriormente
+
+Además, se instalaron las librerías necesarias y se creó el archivo requirements.txt para asegurar que el despliegue posterior sea idéntico al desarrollo local.
