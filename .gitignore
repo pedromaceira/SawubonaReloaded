@@ -1,0 +1,21 @@
+# archivos compilados
+__pycache__/
+*.pyc
+*.pyo
+
+# archivos del sistema
+.DS_Store
+Thumbs.db
+
+# entorno virtual
+envTFG/
+envTFG/*
+
+# archivos temporales
+*.mov
+*.mp4
+uploads/
+.env
+
+# archivos BD
+*.db
