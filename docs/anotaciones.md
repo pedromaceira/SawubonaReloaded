@@ -61,6 +61,5 @@ En concreto, se han desarrollado los siguientes componentes experimentales:
 - Por el momento, se consiguió conectar el front-end con el back-end, haciendo pequeñas pruebas con vídeos. Posteriormente, la interfaz tendrá que ser mejorada, proporcionando un aspecto más atractivo e integrando todas las funcionalidades. Además, se separarán las partes de CSS y HTML, que por el momento están juntas.
 
 ### Uso del CESGA:
-En esta parte, el objetivo va a ser pasar las partes del back-end y de los modelos de IA a los nodos del CESGA, en lugar de ejecutarlas en la CPU de mi portátil.
-Tras validar la arquitectura en local, el siguiente objetivo, probablemente realizado en el siguiente sprint, sería migrar el núcleo de computación al supercomputador para eliminar el cuello de botella de mi CPU local.
+Tras validar la arquitectura en local, el siguiente objetivo, probablemente realizado en el siguiente sprint, sería migrar el núcleo de computación (back-end y modelos de IA) a los nodos del supercomputador para eliminar el cuello de botella de mi CPU local.
 En esta parte se pretende aprovechar la aceleración por hardware para procesar los vídeos con latencia mínima.
