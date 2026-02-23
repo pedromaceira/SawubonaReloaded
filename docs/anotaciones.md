@@ -47,3 +47,18 @@ Las carpetas en las que se estructura inicialmente el proyecto son:
 - tests: para realizar pruebas posteriormente
 
 Además, se instalaron las librerías necesarias y se creó el archivo requirements.txt para asegurar que el despliegue posterior sea idéntico al desarrollo local.
+
+
+### Códigos de prueba
+La siguiente parte consistió en experimentar con diferentes prototipos para verificar que la comunicación entre los distintos módulos de la arquitectura funcionaba correctamente. El objetivo de esta fase es puramente experimental: validar el flujo de datos y asegurar un funcionamiento mínimo funcional antes de escalar el sistema y comenzar con las funcionalidades importantes.
+En concreto, se han desarrollado los siguientes componentes experimentales:
+- Front-end: se han diseñado dos interfaces básicas para probar las dos vías de entradas de datos previstas:
+  - Análisis de vídeo (Página de inicio): permite la carga de archivos locales para verificar la capacidad del sistema de procesar frames de vídeo de forma secuencial. Incluye una tabla dinámica que muestra la emoción predominante y un sistema de tracking visual básico mediante la asignación de IDs (Cara 1, Cara 2...) para asegurar que el sistema mantiene la persistencia de los sujetos detectados.
+  - Webcam (Página secundaria): dedicada a la captura de emociones en directo con la cámara. Esta funcionalidad está prevista para un futuro.
+- Back-end: para dar soporte a las interfaces, se implementó un servidor ligero utilizando FastAPI con las siguientes tareas:
+  - Transformación de cadenas Base64 provenientes del navegador a matrices procesables por OpenCV.
+  - Integración de YOLO y del modelo de clasificación de emociones. Se priorizó la estabilidad sobre la velocidad, ya que por el momento se sigue operando con la CPU del portátil.
+- Por el momento, se consiguió conectar el front-end con el back-end, haciendo pequeñas pruebas con vídeos. Posteriormente, la interfaz tendrá que ser mejorada, proporcionando un aspecto más atractivo e integrando todas las funcionalidades. Además, se separarán las partes de CSS y HTML, que por el momento están juntas.
+
+### Uso del CESGA:
+En esta parte, el objetivo va a ser pasar las partes del back-end y de los modelos de IA a los nodos del CESGA, en lugar de ejecutarlas en la CPU de mi portátil.

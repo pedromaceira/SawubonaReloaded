@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SawubonaReloaded - Webcam</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .video-container {
+            position: relative;
+            width: 640px;
+            height: 480px;
+            margin: 0 auto;
+            border: 5px solid #333;
+            border-radius: 10px;
+            overflow: hidden;
+            background-color: #000;
+        }
+        #webcam {
+            width: 100%;
+            height: 100%;
+            transform: scaleX(-1); /* Efecto espejo */
+        }
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="bg-light">
+
+    <nav class="navbar navbar-dark bg-dark mb-4">
+        <div class="container">
+            <span class="navbar-brand">Sawubona Reloaded</span>
+            <a href="index.html" class="btn btn-outline-info btn-sm">Volver a Análisis de Vídeo</a>
+        </div>
+    </nav>
+
+    <div class="container py-2 text-center">
+        <h1 class="mb-4">Modo Webcam</h1>
+        <p class="lead mb-5">Demostración de detección de emociones en vivo</p>
+
+        <div class="row">
+            <div class="col-lg-8 mb-4">
+                <div class="video-container shadow">
+                    <video id="webcam" autoplay playsinline></video>
+                    <canvas id="overlay"></canvas>
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">Detecciones Actuales</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="status" class="alert alert-secondary small">Esperando cámara...</div>
+                        <div id="results-log" class="text-start" style="height: 300px; overflow-y: auto;">
+                            </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-4">
+            <button id="start-btn" class="btn btn-success btn-lg px-5">Encender</button>
+            <button id="stop-btn" class="btn btn-danger btn-lg px-5" disabled>Apagar</button>
+        </div>
+    </div>
+
+    <script src="crud.js"></script>
+</body>
+</html>
