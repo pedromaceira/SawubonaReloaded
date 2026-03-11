@@ -1,14 +1,24 @@
 import cv2
 import numpy as np
+import tensorflow as tf
 from ultralytics import YOLO
 from tensorflow.keras.models import load_model
-from .utils import preprocess_face  # Importamos la función que creamos antes
+from utils import preprocess_face
 
 '''
 Implementar clase que cargue yolo que tenga un método para 
 devolver las coordenadas de las caras encontradas.
 Aplica los dos modelos
 '''
+
+# CONTROL DE MEMORIA GPU PARA CESGA
+gpus = tf.config.list_physical_devices('GPU')
+if gpus:
+    try:
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+    except RuntimeError as e:
+        print(f"Error configurando la memoria de la GPU: {e}")
 
 class EmotionDetector:
     def __init__(self, yolo_path, emotion_model_path):
@@ -17,8 +27,9 @@ class EmotionDetector:
         para maximizar el rendimiento en el CESGA o en local.
         """
 
-        # se carga el modelo YOLO para detección de caras
+        # se carga el modelo YOLO para detección de caras y se envía a la GPU
         self.face_detector = YOLO(yolo_path)
+        self.face_detector.to('cuda') # se fuerza la carga en GPU
         
         # se carga el modelo de clasificación de emociones
         self.emotion_classifier = load_model(emotion_model_path, compile=False)
@@ -33,9 +44,8 @@ class EmotionDetector:
         results_list = []
         
         # DETECCIÓN DE CARAS CON YOLO
-
-        # se usa el umbral=0.5 para evitar falsos positivos (se puede ajustar para más fiabilidad)
-        detections = self.face_detector(frame, conf=0.5, verbose=False)
+        # se usa el umbral=0.5 para evitar falsos positivos y forzamos el uso de la gráfica (device=0)
+        detections = self.face_detector(frame, conf=0.5, verbose=False, device=0) # <-- AÑADIDO: device=0
         
         # para cada detección
         for detection in detections:

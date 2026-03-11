@@ -2,8 +2,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from .detector import EmotionDetector
-
+from detector import EmotionDetector
 
 '''
 Configurar los puntos de entrada (endpoints) con fastapi
@@ -12,7 +11,6 @@ Configurar los puntos de entrada (endpoints) con fastapi
 # coordine la detección de caras y la inferencia de emociones
 # devuelva un JSON con los resultados
 '''
-
 
 # se define el modelo de datos que recibiremos del frontend
 # el servidor espera recibir un objeto JSON con una clave llamada "image_base64"
@@ -49,7 +47,6 @@ def read_root():
 
 # endpoint de procesamiento
 @app.post("/analizar")
-
 # al ser asíncrona, permite que el servidor puede recibir otro frame mientras la IA termina de procesar una imagen
 async def analizar_emociones(request: ImageRequest):
 
@@ -59,8 +56,8 @@ async def analizar_emociones(request: ImageRequest):
 
     try:
         # se importa la utilidad de conversión dentro para evitar bloqueos
-        from .utils import base64_to_cv2
-        
+        from utils import base64_to_cv2
+
         # se convierte la imagen base64 a formato OpenCV
         frame = base64_to_cv2(request.image_base64)
         
@@ -74,5 +71,5 @@ async def analizar_emociones(request: ImageRequest):
 
 
 if __name__ == "__main__":
-    # comando para ejecutar: python main.py
+    
     uvicorn.run(app, host="0.0.0.0", port=8000)

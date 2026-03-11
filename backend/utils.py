@@ -33,8 +33,6 @@ def base64_to_cv2(base64_string):
 
     return image
 
-
-
 def preprocess_face(face_image, target_size=(64, 64)):
     """
     Prepara el recorte de la cara para el modelo de emociones,
