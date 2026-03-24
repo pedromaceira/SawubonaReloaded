@@ -1,71 +1,145 @@
-// SE ENCARGA DE PROCESAR LA WEBCAM
 const video = document.getElementById('webcam');
 const canvas = document.getElementById('overlay');
 const ctx = canvas.getContext('2d');
 const startBtn = document.getElementById('start-btn');
 const stopBtn = document.getElementById('stop-btn');
+const btnExportarPDF = document.getElementById('btnExportarPDF');
 const statusDiv = document.getElementById('status');
-const resultsLog = document.getElementById('results-log');
+const faceFilter = document.getElementById('faceFilter');
+
+const globalAnalyticsTable = document.getElementById('globalAnalyticsTable');
+const overallSentimentText = document.getElementById('overallSentiment');
+const faceCountBadge = document.getElementById('faceCount');
+
+let chartGlobalInstance = null;
+const mapaEmociones = { 'Felicidad': 6, 'Sorpresa': 5, 'Neutral': 4, 'Tristeza': 3, 'Miedo': 2, 'Disgusto': 1, 'Enfado': 0 };
+const etiquetasEjeY = { 6: 'Felicidad', 5: 'Sorpresa', 4: 'Neutral', 3: 'Tristeza', 2: 'Miedo', 1: 'Disgusto', 0: 'Enfado' };
+const emotionColors = {
+    'Neutral': 'bg-secondary', 'Felicidad': 'bg-success', 'Tristeza': 'bg-info',
+    'Sorpresa': 'bg-warning', 'Enfado': 'bg-danger', 'Miedo': 'bg-dark', 'Disgusto': 'bg-primary'
+};
 
 let stream = null;
-let intervalId = null;
+let intervalId = null; 
+let enviando = false;
+let sessionStartTime = null;
+let sessionData = {}; 
 
-// se enciende la cámara
+let globalBuffer = [];
+let slotActivo = {
+    emocionGlobal: null,
+    startTime: null,
+    emotionsPorCara: {} 
+};
+let timelineData = [];
+
+function formatTime(seconds) {
+    if (isNaN(seconds) || seconds < 0) return "00:00";
+    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const s = Math.floor(seconds % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+}
+
 startBtn.onclick = async () => {
     try {
-        // se solicita acceso a la webcam
+        
+        try {
+            await fetch('http://127.0.0.1:8000/reset', { method: 'POST' });
+        } catch (e) { 
+            console.warn("Aviso: No se pudo formatear el servidor. Si es la primera ejecución, es normal."); 
+        }
+
+        
         stream = await navigator.mediaDevices.getUserMedia({ video: true });
         video.srcObject = stream;
         
-        startBtn.disabled = true;
-        stopBtn.disabled = false;
-        statusDiv.className = "alert alert-success";
-        statusDiv.innerText = "Cámara activa - Analizando...";
+        startBtn.classList.add('d-none');
+        stopBtn.classList.remove('d-none');
+        btnExportarPDF.classList.add('d-none');
+        statusDiv.className = "badge bg-success ms-2 p-2 fs-6";
+        statusDiv.innerText = "Analizando por eventos...";
+        
+        sessionData = {};
+        timelineData = [];
+        globalBuffer = [];
+        sessionStartTime = Date.now();
+        slotActivo = { emocionGlobal: null, startTime: Date.now(), emotionsPorCara: {} };
+        
+        if(faceFilter) faceFilter.innerHTML = '<option value="global">Global (Todas las caras)</option>';
+        if (chartGlobalInstance) { chartGlobalInstance.destroy(); chartGlobalInstance = null; }
 
-        // cuando el video cargue sus metadatos, ajustamos el canvas
         video.onloadedmetadata = () => {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
-            // se inicia el bucle de análisis cada 500ms (2 veces por segundo)
             intervalId = setInterval(capturarYAnalizar, 500);
         };
     } catch (err) {
-        console.error("Error al acceder a la webcam: ", err);
-        statusDiv.className = "alert alert-danger";
-        statusDiv.innerText = "Error: No se pudo acceder a la cámara.";
+        console.error("Error de hardware/permisos: ", err.name, err.message);
+        statusDiv.className = "badge bg-danger ms-2 p-2 fs-6";
+        
+        if (err.name === 'NotAllowedError') {
+            statusDiv.innerText = "Permiso de cámara denegado en el navegador.";
+        } else if (err.name === 'NotFoundError') {
+            statusDiv.innerText = "No se ha detectado ninguna cámara web.";
+        } else {
+            statusDiv.innerText = "Error: Usa Live Server (Localhost).";
+        }
     }
 };
 
-// se apaga la cámara
 stopBtn.onclick = () => {
     if (stream) {
         stream.getTracks().forEach(track => track.stop());
+        stream = null; 
+        
         clearInterval(intervalId);
         video.srcObject = null;
-        startBtn.disabled = false;
-        stopBtn.disabled = true;
-        statusDiv.className = "alert alert-secondary";
-        statusDiv.innerText = "Cámara apagada.";
-        // se limpia el canvas para que no se queden cuadros congelados
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        startBtn.classList.remove('d-none');
+        stopBtn.classList.add('d-none');
+        btnExportarPDF.classList.remove('d-none');
+        
+        statusDiv.className = "badge bg-secondary ms-2 p-2 fs-6";
+        statusDiv.innerText = "Sesión finalizada";
+
+        if (slotActivo.emocionGlobal) {
+            cerrarSlotYAbrirNuevo(slotActivo.emocionGlobal); 
+        }
+
+        const segundosTotales = Math.floor((Date.now() - sessionStartTime) / 1000);
+        const fechaActual = new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute:'2-digit' });
+        
+        document.getElementById('pdfDate').innerText = `Fecha: ${fechaActual}`;
+        document.getElementById('pdfDuration').innerText = `Duración de la sesión: ${formatTime(segundosTotales)}`;
+        
+        const totalCaras = Object.keys(sessionData).length;
+        const emocionGlobal = document.getElementById('overallSentiment').innerText;
+        
+        document.getElementById('pdfSummaryText').innerHTML = `
+            Durante esta sesión en directo se rastrearon <strong>${totalCaras} perfiles biométricos</strong>. 
+            La segmentación dinámica detectó los cambios bruscos de estado, ignorando las transiciones pasivas.
+            El sentimiento global predominante fue <strong>"${emocionGlobal}"</strong>.
+        `;
     }
 };
 
-// se captura el frame, se envía al backend y se reciben datos
+btnExportarPDF.addEventListener('click', () => { window.print(); });
+
 async function capturarYAnalizar() {
-    if (!stream) return;
+    if (!stream || enviando) return;
+    enviando = true;
 
-    // se crea un canvas invisible para extraer la foto actual
     const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = video.videoWidth;
-    tempCanvas.height = video.videoHeight;
-    const tempCtx = tempCanvas.getContext('2d');
     
-    // se dibuja el frame actual del video en el canvas temporal
-    tempCtx.drawImage(video, 0, 0);
-
-    // se convierte a Base64 (JPEG al 80% para que la subida sea rápida)
-    const base64Image = tempCanvas.toDataURL('image/jpeg', 0.8);
+    const MAX_WIDTH = 480; 
+    const scale = Math.min(MAX_WIDTH / video.videoWidth, 1);
+    
+    tempCanvas.width = video.videoWidth * scale;
+    tempCanvas.height = video.videoHeight * scale;
+    
+    tempCanvas.getContext('2d').drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
+    const base64Image = tempCanvas.toDataURL('image/jpeg', 0.5); 
 
     try {
         const response = await fetch('http://127.0.0.1:8000/analizar', {
@@ -73,52 +147,235 @@ async function capturarYAnalizar() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ image_base64: base64Image })
         });
-
+        
         if (!response.ok) throw new Error("Error en la respuesta del servidor");
-
         const data = await response.json();
-        dibujarResultados(data.analisis);
+        
+        if (!stream) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            return; 
+        }
+
+        const analisisEscalado = data.analisis.map(cara => ({
+            ...cara,
+            box: [
+                cara.box[0] / scale,
+                cara.box[1] / scale,
+                cara.box[2] / scale,
+                cara.box[3] / scale
+            ]
+        }));
+
+        dibujarResultados(analisisEscalado);
     } catch (err) {
-        console.error("Error en la conexión con el backend:", err);
+        console.error("Fallo de Inferencia Backend:", err);
+    } finally {
+        enviando = false;
     }
 }
 
-// se dibujan rectángulos y etiquetas con CORRECCIÓN DE ESPEJO
-function dibujarResultados(analisis) {
 
-    // se limpia el canvas anterior
+function dibujarResultados(analisis) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    resultsLog.innerHTML = ""; 
+    faceCountBadge.innerText = `${analisis.length} Caras`;
+
+    let carasEnPantalla = {}; 
+    let emocionesGlobalesEsteFrame = [];
 
     analisis.forEach(persona => {
         let [x1, y1, x2, y2] = persona.box;
+        const idCara = `Cara ${persona.id_tracking}`;
         const emocion = persona.emotion;
-        const confianza = (persona.confidence * 100).toFixed(1);
 
-        /**
-         EXPLICACIÓN CORRECCIÓN ESPEJO:
-         Como el video tiene CSS 'transform: scaleX(-1)', lo vemos invertido.
-         La IA detecta en la imagen original (no invertida).
-         Restamos las coordenadas X del ancho total para que coincidan visualmente.
-         */
+        emocionesGlobalesEsteFrame.push(emocion);
+
+        if (!sessionData[idCara]) sessionData[idCara] = [];
+        sessionData[idCara].push(emocion);
         
+        if (!slotActivo.emotionsPorCara[idCara]) slotActivo.emotionsPorCara[idCara] = [];
+        slotActivo.emotionsPorCara[idCara].push(emocion);
+        if (!slotActivo.emotionsPorCara['global']) slotActivo.emotionsPorCara['global'] = [];
+        slotActivo.emotionsPorCara['global'].push(emocion);
+
+        carasEnPantalla[idCara] = emocion;
+
         let x1_mirror = canvas.width - x2;
         let x2_mirror = canvas.width - x1;
 
-        // se dibuja la bounding box
-        ctx.strokeStyle = "#00FF00"; // Color verde neón
-        ctx.lineWidth = 3;
+        ctx.strokeStyle = "#00FF00"; ctx.lineWidth = 3;
         ctx.strokeRect(x1_mirror, y1, x2_mirror - x1_mirror, y2 - y1);
+        ctx.fillStyle = "#00FF00"; ctx.font = "bold 16px Arial";
+        ctx.fillText(idCara, x1_mirror, y1 - 7);
+    });
 
-        // se dibuja el texto de la emoción
-        ctx.fillStyle = "#00FF00";
-        ctx.font = "bold 20px Arial";
-        ctx.fillText(`${emocion} (${confianza}%)`, x1_mirror, y1 - 10);
+    actualizarTablaGlobal(carasEnPantalla);
+    evaluarCambioEvento(emocionesGlobalesEsteFrame);
+}
 
-        // se actualiza el panel lateral de resultados
-        const p = document.createElement('p');
-        p.className = "mb-1 border-bottom pb-1";
-        p.innerHTML = `<strong>${emocion}</strong> <span class="badge bg-info text-dark">${confianza}%</span>`;
-        resultsLog.appendChild(p);
+function evaluarCambioEvento(emocionesFrame) {
+    if (emocionesFrame.length === 0) return;
+
+    let modaInstantanea = calcularModa(emocionesFrame);
+    
+    globalBuffer.push(modaInstantanea);
+    if (globalBuffer.length > 6) globalBuffer.shift();
+
+    let modaSuavizada = calcularModa(globalBuffer);
+
+    if (!slotActivo.emocionGlobal && modaSuavizada !== "-" && modaSuavizada !== "Procesando...") {
+        slotActivo.emocionGlobal = modaSuavizada;
+        slotActivo.startTime = Date.now();
+        avanzarGrafico(modaSuavizada, true); 
+        return;
+    }
+
+    if (slotActivo.emocionGlobal && modaSuavizada !== slotActivo.emocionGlobal && modaSuavizada !== "-" && modaSuavizada !== "Procesando...") {
+        if (modaSuavizada !== "Neutral") {
+            cerrarSlotYAbrirNuevo(modaSuavizada);
+        }
+    }
+}
+
+function cerrarSlotYAbrirNuevo(nuevaEmocion) {
+    let inicioRelativo = Math.floor((slotActivo.startTime - sessionStartTime) / 1000);
+    let finRelativo = Math.floor((Date.now() - sessionStartTime) / 1000);
+    
+    if (finRelativo - inicioRelativo < 1) return;
+
+    let etiquetaTime = `${formatTime(inicioRelativo)} a ${formatTime(finRelativo)}`;
+    let bloqueCerrado = { label: etiquetaTime, mods: {} };
+    
+    Object.keys(slotActivo.emotionsPorCara).forEach(id => {
+        bloqueCerrado.mods[id] = calcularModa(slotActivo.emotionsPorCara[id]);
+    });
+    
+    if(faceFilter) {
+        [...faceFilter.options].forEach(opt => {
+            if(!bloqueCerrado.mods[opt.value]) bloqueCerrado.mods[opt.value] = "-";
+        });
+    }
+
+    timelineData.push(bloqueCerrado);
+    dibujarGraficoGlobal();
+
+    slotActivo = {
+        emocionGlobal: nuevaEmocion,
+        startTime: Date.now(),
+        emotionsPorCara: {}
+    };
+}
+
+function avanzarGrafico(emocionArranque, isInitial = false) {
+    if(isInitial) {
+        timelineData.push({
+            label: `Inicio`,
+            mods: { 'global': emocionArranque }
+        });
+        dibujarGraficoGlobal();
+    }
+}
+
+function actualizarTablaGlobal(carasEnPantalla = {}) {
+    globalAnalyticsTable.innerHTML = "";
+    let todasLasEmociones = [];
+    
+    Object.keys(sessionData).forEach(id => {
+        if (faceFilter && ![...faceFilter.options].some(opt => opt.value === id)) {
+            const newOption = document.createElement('option');
+            newOption.value = id;
+            newOption.innerText = id;
+            faceFilter.appendChild(newOption);
+        }
+
+        const historial = sessionData[id];
+        const moda = calcularModa(historial);
+        todasLasEmociones.push(...historial);
+        
+        let badgeActual = `<span class="badge bg-light text-muted border">No visible</span>`;
+        if (carasEnPantalla[id]) {
+            const colorClase = emotionColors[carasEnPantalla[id]] || 'bg-primary';
+            badgeActual = `<span class="badge ${colorClase}">${carasEnPantalla[id]}</span>`;
+        }
+        const colorModa = emotionColors[moda] || 'bg-secondary';
+
+        globalAnalyticsTable.innerHTML += `<tr>
+            <td class="fw-bold">${id}</td>
+            <td>${badgeActual}</td>
+            <td><span class="badge ${colorModa}">${moda}</span></td>
+            <td class="text-muted small">${historial.length} frames</td>
+        </tr>`;
+    });
+    
+    if (todasLasEmociones.length > 0) overallSentimentText.innerText = calcularModa(todasLasEmociones);
+}
+
+function calcularModa(arr) {
+    if (!arr || arr.length === 0) return "-";
+    const frecuencias = {};
+    let maxFreq = 0, moda = arr[0];
+    arr.forEach(val => {
+        frecuencias[val] = (frecuencias[val] || 0) + 1;
+        if (frecuencias[val] > maxFreq) { maxFreq = frecuencias[val]; moda = val; }
+    });
+    return moda;
+}
+
+function dibujarGraficoGlobal() {
+    if (timelineData.length === 0) return;
+    const ctxChart = document.getElementById('graficoGlobal').getContext('2d');
+    const selectedFace = faceFilter ? faceFilter.value : 'global'; 
+
+    const etiquetasX = timelineData.map(t => t.label);
+    
+    const datosReales = timelineData.map(t => {
+        let emocionFinal = t.mods[selectedFace] || "-";
+        return (emocionFinal !== "-" && mapaEmociones[emocionFinal] !== undefined) 
+               ? mapaEmociones[emocionFinal] 
+               : null;
+    });
+
+    if (chartGlobalInstance) chartGlobalInstance.destroy(); 
+
+    const labelReal = selectedFace === 'global' ? 'Evolución de Sala (Eventos)' : `Emoción de ${selectedFace}`;
+
+    chartGlobalInstance = new Chart(ctxChart, {
+        type: 'line',
+        data: {
+            labels: etiquetasX,
+            datasets: [
+                {
+                    label: labelReal,
+                    data: datosReales,
+                    borderColor: 'rgba(13, 110, 253, 1)', 
+                    backgroundColor: 'rgba(13, 110, 253, 0.1)',
+                    tension: 0.3, 
+                    fill: true,
+                    stepped: true,
+                    pointBackgroundColor: 'rgba(13, 110, 253, 1)',
+                    pointRadius: 6
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    min: 0,
+                    max: 6,
+                    ticks: {
+                        stepSize: 1,
+                        callback: function(value) { return etiquetasEjeY[value] || ''; }
+                    }
+                }
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: function(context) { return context.dataset.label + ': ' + etiquetasEjeY[context.raw]; }
+                    }
+                }
+            }
+        }
     });
 }

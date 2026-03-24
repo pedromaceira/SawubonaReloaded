@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from detector import EmotionDetector
 
+
 '''
 Configurar los puntos de entrada (endpoints) con fastapi
 
@@ -14,7 +15,7 @@ Configurar los puntos de entrada (endpoints) con fastapi
 
 # se define el modelo de datos que recibiremos del frontend
 # el servidor espera recibir un objeto JSON con una clave llamada "image_base64"
-# en caso de que el frontend intentara mandar otra cosa, FastAPI rechazaría automáticamente la petición
+# en caso de que el frontend intentara mandar otra cosa, FastAPI rechazaría la petición
 class ImageRequest(BaseModel):
     image_base64: str
 
@@ -24,7 +25,7 @@ app = FastAPI(title="Sawubona Reloaded API")
 # se configura CORS para permitir que el frontend se comunique con el backend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # en producción (CESGA) se puede restringir a la IP del cliente
+    allow_origins=["*"],  # en producción (CESGA) se puede restringir a la IP
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -33,7 +34,7 @@ app.add_middleware(
 # se cargan los dos modelos a usar una única vez
 try:
     detector = EmotionDetector(
-        yolo_path="modelos/yolo11n-face.pt", 
+        yolo_path="modelos/yolo11n-face.pt",
         emotion_model_path="modelos/emotion_model.hdf5"
     )
 except Exception as e:
@@ -45,9 +46,20 @@ except Exception as e:
 def read_root():
     return {"status": "Servidor funcionando correctamente"}
 
+# endpoint para resetear la memoria biométrica entre vídeos
+@app.post("/reset")
+async def reset_memory():
+    if detector is None:
+        raise HTTPException(status_code=500, detail="Modelos no cargados en el servidor")
+    try:
+        detector.reset_memory()
+        return {"status": "ok", "message": "Memoria biométrica reseteada con éxito"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error reseteando la memoria: {str(e)}")
+
 # endpoint de procesamiento
 @app.post("/analizar")
-# al ser asíncrona, permite que el servidor puede recibir otro frame mientras la IA termina de procesar una imagen
+# al ser asíncrona, permite que el servidor puede recibir otro frame mientras procesa
 async def analizar_emociones(request: ImageRequest):
 
     # filtro por si los modelos no se cargaron
@@ -60,16 +72,16 @@ async def analizar_emociones(request: ImageRequest):
 
         # se convierte la imagen base64 a formato OpenCV
         frame = base64_to_cv2(request.image_base64)
-        
+
         # se realiza la detección y clasificación
         resultados = detector.detect_and_classify(frame)
-        
+
         return {"caras_detectadas": len(resultados), "analisis": resultados}
-    
+
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error procesando la imagen: {str(e)}")
 
 
 if __name__ == "__main__":
-    
+    # comando para ejecutar: python main.py
     uvicorn.run(app, host="0.0.0.0", port=8000)

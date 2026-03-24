@@ -5,6 +5,8 @@ const videoInput = document.getElementById('videoInput');
 const btnConfigurar = document.getElementById('btnConfigurar');
 const btnPausar = document.getElementById('btnPausar');
 const btnComenzarReal = document.getElementById('btnComenzarReal');
+const btnExportarPDF = document.getElementById('btnExportarPDF');
+
 const globalAnalyticsTable = document.getElementById('globalAnalyticsTable');
 const overallSentimentText = document.getElementById('overallSentiment');
 const faceCountBadge = document.getElementById('faceCount');
@@ -26,19 +28,22 @@ const btnAddInterval = document.getElementById('btnAddInterval');
 const modalVideoDuration = document.getElementById('modalVideoDuration');
 const scriptTimeline = document.getElementById('scriptTimeline');
 
-// configuración visual de etiquetas de emoción
+const faceFilter = document.getElementById('faceFilter');
+let chartGlobalInstance = null;
+const mapaEmociones = { 'Felicidad': 6, 'Sorpresa': 5, 'Neutral': 4, 'Tristeza': 3, 'Miedo': 2, 'Disgusto': 1, 'Enfado': 0 };
+const etiquetasEjeY = { 6: 'Felicidad', 5: 'Sorpresa', 4: 'Neutral', 3: 'Tristeza', 2: 'Miedo', 1: 'Disgusto', 0: 'Enfado' };
+
 const emotionColors = {
-    Neutral: 'bg-secondary', Happy: 'bg-success', Sad: 'bg-info',
-    Surprise: 'bg-warning', Angry: 'bg-danger', Fear: 'bg-dark', Disgust: 'bg-primary'
+    'Neutral': 'bg-secondary', 'Felicidad': 'bg-success', 'Tristeza': 'bg-info',
+    'Sorpresa': 'bg-warning', 'Enfado': 'bg-danger', 'Miedo': 'bg-dark', 'Disgusto': 'bg-primary'
 };
 
 let isAnalyzing = false;
-let enviando = false; // boolean de red
-let sessionData = {}; // historial acumulado por persona
-let slotsData = [];   // datos por slots
+let enviando = false; 
+let sessionData = {}; 
+let slotsData = [];   
 const DEFAULT_NUM_SLOTS = 10;
 
-// utilidades
 function formatTime(seconds) {
     if (isNaN(seconds)) return "00:00";
     const m = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -46,7 +51,6 @@ function formatTime(seconds) {
     return `${m}:${s}`;
 }
 
-// actualización de la barra de progreso
 video.addEventListener('timeupdate', () => {
     if (!video.duration) return;
     currentTimeDisplay.innerText = formatTime(video.currentTime);
@@ -54,7 +58,6 @@ video.addEventListener('timeupdate', () => {
     videoProgressBar.style.width = `${progressPct}%`;
 });
 
-// MODAL DE CONFIGURACIÓN
 radioAuto.addEventListener('change', () => { 
     customScriptContainer.classList.add('d-none'); 
     jsonScriptContainer.classList.add('d-none');
@@ -75,7 +78,6 @@ radioJson.addEventListener('change', () => {
 intervalsList.addEventListener('input', actualizarTimeline);
 intervalsList.addEventListener('change', actualizarTimeline);
 
-// generación dinámica de filas para intervalos manuales
 btnAddInterval.addEventListener('click', () => {
     const row = document.createElement('div');
     row.className = 'row g-2 mb-2 align-items-center interval-row';
@@ -85,9 +87,9 @@ btnAddInterval.addEventListener('click', () => {
         <div class="col-3"><input type="number" class="form-control form-control-sm end-time" placeholder="Fin" min="0" max="${maxDur}"></div>
         <div class="col-5">
             <select class="form-select form-select-sm expected-emotion">
-                <option value="Neutral">Neutral</option><option value="Happy">Happy</option>
-                <option value="Sad">Sad</option><option value="Surprise">Surprise</option>
-                <option value="Angry">Angry</option><option value="Fear">Fear</option><option value="Disgust">Disgust</option>
+                <option value="Neutral">Neutral</option><option value="Felicidad">Felicidad</option>
+                <option value="Tristeza">Tristeza</option><option value="Sorpresa">Sorpresa</option>
+                <option value="Enfado">Enfado</option><option value="Miedo">Miedo</option><option value="Disgusto">Disgusto</option>
             </select>
         </div>
         <div class="col-1 text-end"><button type="button" class="btn btn-sm btn-outline-danger btn-remove-interval" title="Eliminar">✖</button></div>
@@ -102,7 +104,6 @@ intervalsList.addEventListener('click', (e) => {
     }
 });
 
-// renderizado de la barra de previsualización de colores en el modal
 function actualizarTimeline() {
     const duration = video.duration || 1; 
     const rows = document.querySelectorAll('.interval-row');
@@ -152,7 +153,14 @@ function sincronizarDimensiones() {
 
 window.onresize = sincronizarDimensiones;
 
-// reset completo de variables e interfaz al cargar un nuevo archivo
+if(faceFilter) {
+    faceFilter.addEventListener('change', dibujarGraficoGlobal);
+}
+
+btnExportarPDF.addEventListener('click', () => {
+    window.print(); 
+});
+
 videoInput.onchange = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -164,13 +172,24 @@ videoInput.onchange = (e) => {
         btnPausar.innerHTML = "Pausar";
         btnConfigurar.classList.remove('d-none');
         btnConfigurar.disabled = false;
+        
+        btnExportarPDF.classList.add('d-none');
 
         sessionData = {};
         slotsData = [];
-        globalAnalyticsTable.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">Sin datos acumulados</td></tr>'; // <-- Actualizado a 4 columnas
+        globalAnalyticsTable.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">Sin datos acumulados</td></tr>'; 
         slotsTable.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">Configura el análisis para ver los slots</td></tr>';
         overallSentimentText.innerText = "-";
         faceCountBadge.innerText = "0 Caras";
+        
+        if(faceFilter) {
+            faceFilter.innerHTML = '<option value="global">Global (Todas las caras)</option>';
+        }
+
+        if (chartGlobalInstance) {
+            chartGlobalInstance.destroy();
+            chartGlobalInstance = null;
+        }
         
         if (canvas.width > 0 && canvas.height > 0) {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -190,19 +209,24 @@ videoInput.onchange = (e) => {
     }
 };
 
-// preparación de la estructura de datos según el modo elegido
 function inicializarSlots() {
     slotsData = [];
     sessionData = {}; 
     const duration = video.duration;
 
+    const pushSlot = (id, start, end, expected) => {
+        slotsData.push({
+            id: id, start: start, end: end, expected: expected,
+            emotions: [], 
+            emotionsPorCara: {}, 
+            moda: "Procesando...", finished: false
+        });
+    };
+
     if (radioAuto.checked) {
         const slotDuration = duration / DEFAULT_NUM_SLOTS;
         for (let i = 0; i < DEFAULT_NUM_SLOTS; i++) {
-            slotsData.push({
-                id: i + 1, start: i * slotDuration, end: (i + 1) * slotDuration,
-                expected: "-", emotions: [], moda: "Procesando...", finished: false
-            });
+            pushSlot(i + 1, i * slotDuration, (i + 1) * slotDuration, "-");
         }
     } 
     else if (radioCustom.checked) {
@@ -234,10 +258,7 @@ function inicializarSlots() {
         if (hasError) return false;
         tempIntervals.sort((a, b) => a.start - b.start);
         tempIntervals.forEach((item, index) => {
-            slotsData.push({
-                id: index + 1, start: item.start, end: item.end, expected: item.expected,
-                emotions: [], moda: "Procesando...", finished: false
-            });
+            pushSlot(index + 1, item.start, item.end, item.expected);
         });
     }
     else if (radioJson.checked) {
@@ -274,10 +295,7 @@ function inicializarSlots() {
 
             tempIntervals.sort((a, b) => a.start - b.start);
             tempIntervals.forEach((item, index) => {
-                slotsData.push({
-                    id: index + 1, start: item.start, end: item.end, expected: item.expected,
-                    emotions: [], moda: "Procesando...", finished: false
-                });
+                pushSlot(index + 1, item.start, item.end, item.expected);
             });
 
         } catch (error) {
@@ -290,8 +308,7 @@ function inicializarSlots() {
     return true;
 }
 
-// CONTROLES DE REPRODUCCIÓN
-btnComenzarReal.onclick = () => {
+btnComenzarReal.onclick = async () => {
     if (inicializarSlots()) {
         const modalInstance = bootstrap.Modal.getInstance(document.getElementById('configModal'));
         modalInstance.hide();
@@ -299,6 +316,13 @@ btnComenzarReal.onclick = () => {
         btnConfigurar.classList.add('d-none');
         btnPausar.className = "btn btn-warning"; 
         btnPausar.innerHTML = "Pausar";
+
+        try {
+            await fetch('http://127.0.0.1:8000/reset', { method: 'POST' });
+            console.log("Memoria biométrica del servidor formateada.");
+        } catch (error) {
+            console.error("No se pudo contactar con /reset en el servidor.", error);
+        }
         
         video.play();
         isAnalyzing = true;
@@ -325,10 +349,25 @@ video.onended = () => {
     isAnalyzing = false;
     btnPausar.className = "btn btn-warning d-none"; 
     btnConfigurar.classList.remove('d-none');
+    
+    btnExportarPDF.classList.remove('d-none');
+
     finalizarUltimoSlot();
+
+    const fechaActual = new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
+    document.getElementById('pdfDate').innerText = `Fecha: ${fechaActual}`;
+    document.getElementById('pdfDuration').innerText = `Duración analizada: ${formatTime(video.duration)}`;
+    
+    const totalCaras = Object.keys(sessionData).length;
+    const emocionGlobal = document.getElementById('overallSentiment').innerText;
+    
+    document.getElementById('pdfSummaryText').innerHTML = `
+        En este análisis se identificaron y analizaron <strong>${totalCaras} rostros</strong> distintos en la escena. 
+        El motor de IA determinó que el sentimiento global predominante del evento fue <strong>"${emocionGlobal}"</strong>. 
+        A continuación, se presentan las gráficas y métricas detalladas, mostrando el nivel de coincidencia entre la curva emocional esperada (guion, en caso de haberlo) y las reacciones reales detectadas.
+    `;
 };
 
-// MOTOR DE PROCESAMIENTO
 async function procesarFrame() {
     if (video.paused || video.ended || !isAnalyzing) return;
     
@@ -381,7 +420,6 @@ async function procesarFrame() {
     }
 }
 
-// actualización de dibujo sobre el vídeo y distribución de datos en las memorias
 function actualizarInterfaz(analisis, currentTime) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     faceCountBadge.innerText = `${analisis.length} Caras`;
@@ -390,19 +428,25 @@ function actualizarInterfaz(analisis, currentTime) {
     let carasEnPantalla = {}; 
 
     analisis.forEach((det, index) => {
-        const idCara = `Cara ${index + 1}`;
+        const idCara = `Cara ${det.id_tracking}`; 
+        
         if (!sessionData[idCara]) sessionData[idCara] = [];
         sessionData[idCara].push(det.emotion);
-        if (currentSlot) currentSlot.emotions.push(det.emotion);
+        
+        if (currentSlot) {
+            currentSlot.emotions.push(det.emotion); 
+            if (!currentSlot.emotionsPorCara[idCara]) currentSlot.emotionsPorCara[idCara] = [];
+            currentSlot.emotionsPorCara[idCara].push(det.emotion);
+        }
 
-        carasEnPantalla[idCara] = det.emotion; // se guarda lo que siente AHORA MISMO
+        carasEnPantalla[idCara] = det.emotion;
 
         const [x1, y1, x2, y2] = det.box;
         ctx.strokeStyle = "#00FF00"; ctx.lineWidth = 2; ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
         ctx.fillStyle = "#00FF00"; ctx.font = "bold 16px Arial"; ctx.fillText(idCara, x1, y1 - 7);
     });
     
-    renderizarAnaliticaGlobal(carasEnPantalla); // se envía el diccionario de caras en pantalla
+    renderizarAnaliticaGlobal(carasEnPantalla); 
     evaluarProgresoSlots(currentTime);
 }
 
@@ -411,6 +455,13 @@ function renderizarAnaliticaGlobal(carasEnPantalla = {}) {
     let todasLasEmociones = [];
     
     Object.keys(sessionData).forEach(id => {
+        if (faceFilter && ![...faceFilter.options].some(opt => opt.value === id)) {
+            const newOption = document.createElement('option');
+            newOption.value = id;
+            newOption.innerText = id;
+            faceFilter.appendChild(newOption);
+        }
+
         const historial = sessionData[id];
         const moda = calcularModa(historial);
         todasLasEmociones.push(...historial);
@@ -421,10 +472,12 @@ function renderizarAnaliticaGlobal(carasEnPantalla = {}) {
             badgeActual = `<span class="badge ${colorClase}">${carasEnPantalla[id]}</span>`;
         }
 
+        const colorModa = emotionColors[moda] || 'bg-secondary';
+
         globalAnalyticsTable.innerHTML += `<tr>
             <td class="fw-bold">${id}</td>
             <td>${badgeActual}</td>
-            <td><span class="badge bg-success">${moda}</span></td>
+            <td><span class="badge ${colorModa}">${moda}</span></td>
             <td class="text-muted small">${historial.length} frames</td>
         </tr>`;
     });
@@ -432,9 +485,8 @@ function renderizarAnaliticaGlobal(carasEnPantalla = {}) {
     if (todasLasEmociones.length > 0) overallSentimentText.innerText = calcularModa(todasLasEmociones);
 }
 
-// encontrar la emoción predominante en un array
 function calcularModa(arr) {
-    if (arr.length === 0) return "-";
+    if (!arr || arr.length === 0) return "-";
     const frecuencias = {};
     let maxFreq = 0, moda = arr[0];
     arr.forEach(val => {
@@ -444,7 +496,6 @@ function calcularModa(arr) {
     return moda;
 }
 
-// cierre automático de slots cuando el reproductor los sobrepasa
 function evaluarProgresoSlots(currentTime) {
     let necesitaRender = false;
     slotsData.forEach(slot => {
@@ -469,7 +520,84 @@ function finalizarUltimoSlot() {
     }
 }
 
-// cálculo del éxito de la emoción esperada por el cliente VS la que detecta la IA
+function dibujarGraficoGlobal() {
+    if (slotsData.length === 0) return;
+    const ctxChart = document.getElementById('graficoGlobal').getContext('2d');
+    const selectedFace = faceFilter ? faceFilter.value : 'global'; 
+
+    const etiquetasX = slotsData.map(s => `${s.start.toFixed(0)}s - ${s.end.toFixed(0)}s`);
+    const datosGuion = slotsData.map(s => s.expected !== "-" && mapaEmociones[s.expected] !== undefined ? mapaEmociones[s.expected] : null);
+    
+    const datosReales = slotsData.map(s => {
+        if (!s.finished) return null;
+        
+        let emocionFinal = "-";
+        if (selectedFace === 'global') {
+            emocionFinal = s.moda; 
+        } else {
+            const emocionesDeEstaPersona = s.emotionsPorCara[selectedFace] || [];
+            emocionFinal = calcularModa(emocionesDeEstaPersona);
+        }
+
+        return (emocionFinal !== "-" && emocionFinal !== "Procesando..." && mapaEmociones[emocionFinal] !== undefined) 
+               ? mapaEmociones[emocionFinal] 
+               : null;
+    });
+
+    if (chartGlobalInstance) chartGlobalInstance.destroy(); 
+
+    const labelReal = selectedFace === 'global' ? 'Moda Global (Real)' : `Emoción de ${selectedFace}`;
+
+    chartGlobalInstance = new Chart(ctxChart, {
+        type: 'line',
+        data: {
+            labels: etiquetasX,
+            datasets: [
+                {
+                    label: 'Guion (Esperado)',
+                    data: datosGuion,
+                    borderColor: 'rgba(100, 100, 100, 0.5)', 
+                    borderDash: [5, 5], 
+                    tension: 0.1,
+                    fill: false,
+                    pointBackgroundColor: 'rgba(100, 100, 100, 0.5)'
+                },
+                {
+                    label: labelReal,
+                    data: datosReales,
+                    borderColor: 'rgba(13, 110, 253, 1)', 
+                    backgroundColor: 'rgba(13, 110, 253, 0.1)',
+                    tension: 0.3, 
+                    fill: true,
+                    pointBackgroundColor: 'rgba(13, 110, 253, 1)',
+                    pointRadius: 4
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    min: 0,
+                    max: 6,
+                    ticks: {
+                        stepSize: 1,
+                        callback: function(value) { return etiquetasEjeY[value] || ''; }
+                    }
+                }
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: function(context) { return context.dataset.label + ': ' + etiquetasEjeY[context.raw]; }
+                    }
+                }
+            }
+        }
+    });
+}
+
 function renderizarTablaSlots() {
     slotsTable.innerHTML = "";
     if (slotsData.length === 0) return;
@@ -486,14 +614,13 @@ function renderizarTablaSlots() {
 
         let coincidenciaHtml = `<span class="text-muted">-</span>`;
         
-        // validación de las emociones esperadas por el cliente con colores
         if (slot.finished && slot.expected !== "-") {
             const totalFrames = slot.emotions.length;
             if (totalFrames > 0) {
                 const expectedCount = slot.emotions.filter(e => e === slot.expected).length;
                 const matchPct = ((expectedCount / totalFrames) * 100).toFixed(0);
                 
-                let badgeColor = "bg-danger"; // < 30%
+                let badgeColor = "bg-danger"; 
                 if (matchPct >= 60) badgeColor = "bg-success";
                 else if (matchPct >= 30) badgeColor = "bg-warning text-dark";
 
@@ -511,4 +638,6 @@ function renderizarTablaSlots() {
             <td>${coincidenciaHtml}</td>
         </tr>`;
     });
+
+    dibujarGraficoGlobal();
 }
