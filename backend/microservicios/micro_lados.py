@@ -5,10 +5,8 @@ import base64
 import cv2
 import numpy as np
 
-# Inicializamos el microservicio
 app = FastAPI(title="Microservicio: Corrector de Lados (Aspect Ratio)")
 
-# Contrato de datos esperado
 class FaceCropRequest(BaseModel):
     image_base64: str
     is_screen_share: bool = False
@@ -34,10 +32,8 @@ async def verificar_ratio(request: FaceCropRequest):
 
         aspect_ratio = ancho / alto
 
-        # --- AHORA SÍ SOMOS LAXOS PARA LOS PERFILES ---
-        # Permitimos un ratio de hasta 0.45 (cara girada casi de perfil)
-        umbral_minimo = 0.6
-        umbral_maximo = 1.60 # Damos un poco más de margen por arriba también
+        umbral_minimo = 0.58
+        umbral_maximo = 1.60
 
         es_valido = umbral_minimo <= aspect_ratio <= umbral_maximo
 
@@ -51,5 +47,4 @@ async def verificar_ratio(request: FaceCropRequest):
         raise HTTPException(status_code=400, detail=f"Error interno: {str(e)}")
 
 if __name__ == "__main__":
-    # IMPORTANTE: Levantamos este microservicio en el puerto 8001
     uvicorn.run(app, host="0.0.0.0", port=8001)
