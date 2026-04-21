@@ -7,13 +7,12 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <style> /*después meter archivos CSS para tener todo separado */
+    <style>
         .video-container {
             position: relative;
             width: 100%;
-            max-width: 640px;
-            height: 480px;
-            margin: 0 auto;
+            max-width: 800px;
+            height: auto;
             border: 4px solid #333;
             border-radius: 8px;
             overflow: hidden;
@@ -75,6 +74,8 @@
         <div class="row mb-3" id="controlesBtn">
             <div class="col-12 d-flex gap-2 align-items-center">
                 <button id="start-btn" class="btn btn-success" style="min-width: 150px;">Encender cámara</button>
+                <button id="start-screen-btn" class="btn btn-info text-white" style="min-width: 150px;">Analizar llamada</button>
+                
                 <button id="stop-btn" class="btn btn-danger d-none" style="min-width: 150px;">Apagar y analizar</button>
                 <button id="btnExportarPDF" class="btn btn-primary d-none" style="min-width: 150px;">Descargar PDF</button>
                 <span id="status" class="badge bg-secondary ms-2 p-2 fs-6">Cámara apagada</span>
@@ -144,7 +145,27 @@
                         <small class="text-muted">Sentimiento global de la sesión: <strong id="overallSentiment" class="text-primary">-</strong></small>
                     </div>
                 </div>
-            </div>
+
+                <div class="card shadow-sm mb-3 card-analytics" style="border-top-color: #dc3545;">
+                    <div class="card-header bg-white py-2 d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0 text-danger fw-bold">Detecciones omitidas (Ruido)</h6>
+                        <span id="discardedCount" class="badge bg-danger">0 descartes</span>
+                    </div>
+                    <div class="card-body p-0 scroll-panel" style="max-height: 150px;">
+                        <table class="table table-striped table-sm mb-0 text-center">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Motivo del descarte</th>
+                                </tr>
+                            </thead>
+                            <tbody id="discardedTable">
+                                <tr><td colspan="2" class="text-center text-muted py-2">No se ha filtrado ruido aún</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                </div>
         </div>
     </div>
 

@@ -18,6 +18,7 @@ Configurar los puntos de entrada (endpoints) con fastapi
 # en caso de que el frontend intentara mandar otra cosa, FastAPI rechazaría la petición
 class ImageRequest(BaseModel):
     image_base64: str
+    is_screen_share: bool = False  # NUEVO: Bandera para saber si aplicamos filtros tolerantes o estrictos
 
 # se inicializa FastAPI
 app = FastAPI(title="Sawubona Reloaded API")
@@ -73,8 +74,8 @@ async def analizar_emociones(request: ImageRequest):
         # se convierte la imagen base64 a formato OpenCV
         frame = base64_to_cv2(request.image_base64)
 
-        # se realiza la detección y clasificación
-        resultados = detector.detect_and_classify(frame)
+        # se realiza la detección y clasificación, pasándole la bandera de contexto
+        resultados = detector.detect_and_classify(frame, is_screen_share=request.is_screen_share)
 
         return {"caras_detectadas": len(resultados), "analisis": resultados}
 

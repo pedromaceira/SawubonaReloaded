@@ -11,6 +11,8 @@ from tensorflow.keras.models import load_model
 from facenet_pytorch import InceptionResnetV1
 import torchvision.transforms as transforms
 from utils import preprocess_face
+import requests
+import base64
 
 gpus = tf.config.list_physical_devices('GPU')
 if gpus:
@@ -19,6 +21,13 @@ if gpus:
             tf.config.experimental.set_memory_growth(gpu, True)
     except RuntimeError as e:
         print(f"Error configurando la memoria: {e}")
+
+# CONFIGURACIÓN DE LOS MÓDULOS ENCHUFABLES
+MODULOS_ACTIVOS = {
+    "corrector_lados": "http://127.0.0.1:8001/verificar_ratio",
+    # "detector_ojos": "http://127.0.0.1:8002/verificar_ojos",  # el módulo que metimos en el backlog
+}
+
 
 class EmotionDetector:
     def __init__(self, yolo_path, emotion_model_path):
@@ -40,14 +49,12 @@ class EmotionDetector:
         self.known_faces = []
         self.next_id = 1
 
-        # se mantiene la tolerancia biométrica alta para evitar saltos de ID
         self.match_threshold = 1.15
 
-        print("Warm up de la CPU... por favor espera.")
+        print("Warm up de la GPU... por favor espera.")
         try:
             dummy_frame = np.zeros((480, 640, 3), dtype=np.uint8)
-            # se caliente con el nuevo umbral de YOLO (0.20)
-            self.face_detector.predict(dummy_frame, conf=0.20, verbose=False, device=0)
+            self.face_detector.predict(dummy_frame, conf=0.20, verbose=False)
 
             dummy_tensor = torch.zeros((1, 3, 160, 160), device='cuda')
             with torch.no_grad():
@@ -93,11 +100,41 @@ class EmotionDetector:
             self.next_id += 1
             return self.next_id - 1
 
-    def detect_and_classify(self, frame):
+    def consultar_microservicio_lados(self, face_crop, is_screen_share):
+        url = MODULOS_ACTIVOS.get("corrector_lados")
+        if not url:
+            return False
+
+        try:
+            _, buffer = cv2.imencode('.jpg', face_crop)
+            img_base64 = base64.b64encode(buffer).decode('utf-8')
+
+            payload = {
+                "image_base64": img_base64,
+                "is_screen_share": is_screen_share
+            }
+
+            response = requests.post(url, json=payload, timeout=2.0)
+
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("valido", False)
+            else:
+                print(f"Error del microservicio: {response.status_code}")
+                return False
+
+        except requests.exceptions.RequestException as e:
+            print(f"Error de conexión con el microservicio: {e}")
+            return False
+
+    def detect_and_classify(self, frame, is_screen_share=False):
         results_list = []
 
-        # confianza más permisiva para encontrar caras en peores ángulos
-        results = self.face_detector.predict(frame, conf=0.20, verbose=False, device=0)
+        umbral_tamano = 30 if is_screen_share else 50
+        umbral_foco = 2.0 if is_screen_share else 5.0
+        umbral_ratio = 0.58 if is_screen_share else 0.67
+
+        results = self.face_detector.predict(frame, conf=0.20, verbose=False)
 
         for r in results:
             boxes = r.boxes.xyxy.cpu().numpy()
@@ -105,21 +142,34 @@ class EmotionDetector:
             for box in boxes:
                 x1, y1, x2, y2 = map(int, box)
 
-                # permitimos caras más pequeñas (20x20) para planos generales
                 ancho = x2 - x1
                 alto = y2 - y1
-                if ancho < 20 or alto < 20:
+
+                if ancho < umbral_tamano or alto < umbral_tamano:
                     continue
+
+                aspect_ratio = ancho / alto
+
+                if aspect_ratio < umbral_ratio or aspect_ratio > 1.50:
+                    if "corrector_lados" in MODULOS_ACTIVOS:
+                        face_crop_temp = frame[y1:y2, x1:x2]
+                        if face_crop_temp.size == 0:
+                            continue
+
+                        es_valido = self.consultar_microservicio_lados(face_crop_temp, is_screen_share)
+                        if not es_valido:
+                            continue
+                    else:
+                        continue
 
                 face_crop = frame[y1:y2, x1:x2]
                 if face_crop.size == 0:
                     continue
 
-                # filtro Laplaciano muy bajo (5.0) para tolerar webcams y luz natural
                 gray_face = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY)
                 focus_measure = cv2.Laplacian(gray_face, cv2.CV_64F).var()
 
-                if focus_measure < 5.0:
+                if focus_measure < umbral_foco:
                     continue
 
                 person_id = self.get_face_id(face_crop)

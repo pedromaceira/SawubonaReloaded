@@ -12,6 +12,11 @@ const overallSentimentText = document.getElementById('overallSentiment');
 const faceCountBadge = document.getElementById('faceCount');
 const slotsTable = document.getElementById('slotsTable');
 
+const discardedTable = document.getElementById('discardedTable');
+const discardedCount = document.getElementById('discardedCount');
+const UMBRAL_RUIDO_FRAMES = 3;
+let carasFiltradas = {}; 
+
 const currentTimeDisplay = document.getElementById('currentTimeDisplay');
 const durationDisplay = document.getElementById('durationDisplay');
 const videoProgressBar = document.getElementById('videoProgressBar');
@@ -177,8 +182,14 @@ videoInput.onchange = (e) => {
 
         sessionData = {};
         slotsData = [];
+        carasFiltradas = {};
+        
         globalAnalyticsTable.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">Sin datos acumulados</td></tr>'; 
         slotsTable.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">Configura el análisis para ver los slots</td></tr>';
+        
+        if (discardedTable) discardedTable.innerHTML = '<tr><td colspan="2" class="text-center text-muted py-2">No se ha filtrado ruido aún</td></tr>';
+        if (discardedCount) discardedCount.innerText = "0 descartes";
+
         overallSentimentText.innerText = "-";
         faceCountBadge.innerText = "0 Caras";
         
@@ -345,26 +356,96 @@ btnPausar.onclick = () => {
     }
 };
 
+function ejecutarFiltroDeRuido() {
+    let ruidoDetectado = false;
+    let carasInvalidas = [];
+
+    Object.keys(sessionData).forEach(idCara => {
+        const historial = sessionData[idCara];
+        if (historial.length < UMBRAL_RUIDO_FRAMES) {
+            carasFiltradas[idCara] = {
+                frames: historial.length
+            };
+            carasInvalidas.push(idCara);
+            delete sessionData[idCara];
+            ruidoDetectado = true;
+        }
+    });
+
+    if (!ruidoDetectado) return;
+
+    if (faceFilter) {
+        Array.from(faceFilter.options).forEach(opt => {
+            if (carasInvalidas.includes(opt.value)) {
+                faceFilter.removeChild(opt);
+            }
+        });
+        if (carasInvalidas.includes(faceFilter.value)) {
+            faceFilter.value = 'global';
+        }
+    }
+
+    slotsData.forEach(slot => {
+        carasInvalidas.forEach(idCara => {
+            if (slot.emotionsPorCara[idCara]) {
+                delete slot.emotionsPorCara[idCara];
+            }
+        });
+
+        let emocionesValidas = [];
+        Object.values(slot.emotionsPorCara).forEach(historialCara => {
+            emocionesValidas.push(...historialCara);
+        });
+        slot.emotions = emocionesValidas;
+        
+        if(slot.finished) {
+            slot.moda = calcularModa(emocionesValidas);
+        }
+    });
+
+    if (discardedTable && discardedCount) {
+        discardedCount.innerText = `${Object.keys(carasFiltradas).length} descartes`;
+        discardedTable.innerHTML = "";
+        Object.keys(carasFiltradas).forEach(idCara => {
+            const info = carasFiltradas[idCara];
+            discardedTable.innerHTML += `<tr>
+                <td class="fw-bold text-danger">${idCara}</td>
+                <td class="small text-muted">Eliminada por ruido (${info.frames} frames de aparición)</td>
+            </tr>`;
+        });
+    }
+
+    renderizarAnaliticaGlobal({}); 
+    renderizarTablaSlots();
+}
+
 video.onended = () => {
     isAnalyzing = false;
     btnPausar.className = "btn btn-warning d-none"; 
     btnConfigurar.classList.remove('d-none');
-    
     btnExportarPDF.classList.remove('d-none');
 
     finalizarUltimoSlot();
+
+    ejecutarFiltroDeRuido();
 
     const fechaActual = new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
     document.getElementById('pdfDate').innerText = `Fecha: ${fechaActual}`;
     document.getElementById('pdfDuration').innerText = `Duración analizada: ${formatTime(video.duration)}`;
     
     const totalCaras = Object.keys(sessionData).length;
+    const totalDescartadas = Object.keys(carasFiltradas).length;
     const emocionGlobal = document.getElementById('overallSentiment').innerText;
     
+    let textoRuido = totalDescartadas > 0 
+        ? `<br><span class="text-danger">Nota de Calidad: El algoritmo purgó automáticamente ${totalDescartadas} rostros fantasma detectados como ruido de fondo o movimiento (menos de ${UMBRAL_RUIDO_FRAMES} frames).</span>` 
+        : "";
+
     document.getElementById('pdfSummaryText').innerHTML = `
         En este análisis se identificaron y analizaron <strong>${totalCaras} rostros</strong> distintos en la escena. 
         El motor de IA determinó que el sentimiento global predominante del evento fue <strong>"${emocionGlobal}"</strong>. 
-        A continuación, se presentan las gráficas y métricas detalladas, mostrando el nivel de coincidencia entre la curva emocional esperada (guion, en caso de haberlo) y las reacciones reales detectadas.
+        A continuación, se presentan las gráficas y métricas detalladas, mostrando el nivel de coincidencia entre la curva emocional esperada (guion) y las reacciones reales detectadas.
+        ${textoRuido}
     `;
 };
 
@@ -422,7 +503,8 @@ async function procesarFrame() {
 
 function actualizarInterfaz(analisis, currentTime) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    faceCountBadge.innerText = `${analisis.length} Caras`;
+    
+    faceCountBadge.innerText = `${Object.keys(sessionData).length} Caras detectadas`;
 
     let currentSlot = slotsData.find(s => currentTime >= s.start && currentTime < s.end);
     let carasEnPantalla = {}; 
@@ -483,6 +565,8 @@ function renderizarAnaliticaGlobal(carasEnPantalla = {}) {
     });
     
     if (todasLasEmociones.length > 0) overallSentimentText.innerText = calcularModa(todasLasEmociones);
+    
+    if(faceCountBadge) faceCountBadge.innerText = `${Object.keys(sessionData).length} caras`;
 }
 
 function calcularModa(arr) {

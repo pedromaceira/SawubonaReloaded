@@ -2,6 +2,7 @@ const video = document.getElementById('webcam');
 const canvas = document.getElementById('overlay');
 const ctx = canvas.getContext('2d');
 const startBtn = document.getElementById('start-btn');
+const startScreenBtn = document.getElementById('start-screen-btn'); 
 const stopBtn = document.getElementById('stop-btn');
 const btnExportarPDF = document.getElementById('btnExportarPDF');
 const statusDiv = document.getElementById('status');
@@ -11,6 +12,11 @@ const globalAnalyticsTable = document.getElementById('globalAnalyticsTable');
 const overallSentimentText = document.getElementById('overallSentiment');
 const faceCountBadge = document.getElementById('faceCount');
 
+const discardedTable = document.getElementById('discardedTable');
+const discardedCount = document.getElementById('discardedCount');
+const UMBRAL_RUIDO_FRAMES = 3;
+let carasFiltradas = {};
+
 let chartGlobalInstance = null;
 const mapaEmociones = { 'Felicidad': 6, 'Sorpresa': 5, 'Neutral': 4, 'Tristeza': 3, 'Miedo': 2, 'Disgusto': 1, 'Enfado': 0 };
 const etiquetasEjeY = { 6: 'Felicidad', 5: 'Sorpresa', 4: 'Neutral', 3: 'Tristeza', 2: 'Miedo', 1: 'Disgusto', 0: 'Enfado' };
@@ -19,11 +25,18 @@ const emotionColors = {
     'Sorpresa': 'bg-warning', 'Enfado': 'bg-danger', 'Miedo': 'bg-dark', 'Disgusto': 'bg-primary'
 };
 
+const toleranciasFrames = {
+    'Sorpresa': 2, 'Miedo': 3, 'Disgusto': 3, 'Felicidad': 4,
+    'Enfado': 4, 'Tristeza': 6, 'Neutral': 6
+};
+const MAX_BUFFER_SIZE = 6; 
+
 let stream = null;
 let intervalId = null; 
 let enviando = false;
 let sessionStartTime = null;
 let sessionData = {}; 
+let isScreenSharing = false; 
 
 let globalBuffer = [];
 let slotActivo = {
@@ -40,52 +53,115 @@ function formatTime(seconds) {
     return `${m}:${s}`;
 }
 
-startBtn.onclick = async () => {
+async function iniciarSesion(usarPantalla = false) {
     try {
-        
         try {
             await fetch('http://127.0.0.1:8000/reset', { method: 'POST' });
         } catch (e) { 
-            console.warn("Aviso: No se pudo formatear el servidor. Si es la primera ejecución, es normal."); 
+            console.warn("Aviso: No se pudo formatear el servidor."); 
         }
 
+        isScreenSharing = usarPantalla;
+
+        if (usarPantalla) {
+            stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+            video.style.transform = 'none';
+            statusDiv.innerText = "Analizando Pantalla...";
+        } else {
+            stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            video.style.transform = 'scaleX(-1)';
+            statusDiv.innerText = "Analizando Webcam...";
+        }
         
-        stream = await navigator.mediaDevices.getUserMedia({ video: true });
         video.srcObject = stream;
         
         startBtn.classList.add('d-none');
+        startScreenBtn.classList.add('d-none');
         stopBtn.classList.remove('d-none');
         btnExportarPDF.classList.add('d-none');
         statusDiv.className = "badge bg-success ms-2 p-2 fs-6";
-        statusDiv.innerText = "Analizando por eventos...";
         
         sessionData = {};
         timelineData = [];
         globalBuffer = [];
+        carasFiltradas = {};
         sessionStartTime = Date.now();
         slotActivo = { emocionGlobal: null, startTime: Date.now(), emotionsPorCara: {} };
         
+        if (discardedTable) discardedTable.innerHTML = '<tr><td colspan="2" class="text-center text-muted py-2">No se ha filtrado ruido aún</td></tr>';
+        if (discardedCount) discardedCount.innerText = "0 descartes";
+
         if(faceFilter) faceFilter.innerHTML = '<option value="global">Global (Todas las caras)</option>';
         if (chartGlobalInstance) { chartGlobalInstance.destroy(); chartGlobalInstance = null; }
 
         video.onloadedmetadata = () => {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
+
+            const container = document.querySelector('.video-container');
+            container.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
+
             intervalId = setInterval(capturarYAnalizar, 500);
         };
+
+        stream.getVideoTracks()[0].onended = () => stopBtn.click();
+
     } catch (err) {
-        console.error("Error de hardware/permisos: ", err.name, err.message);
+        console.error("Error de hardware/permisos: ", err);
         statusDiv.className = "badge bg-danger ms-2 p-2 fs-6";
-        
-        if (err.name === 'NotAllowedError') {
-            statusDiv.innerText = "Permiso de cámara denegado en el navegador.";
-        } else if (err.name === 'NotFoundError') {
-            statusDiv.innerText = "No se ha detectado ninguna cámara web.";
-        } else {
-            statusDiv.innerText = "Error: Usa Live Server (Localhost).";
-        }
+        statusDiv.innerText = usarPantalla ? "Permiso de pantalla denegado." : "Error de cámara.";
     }
-};
+}
+
+startBtn.onclick = () => iniciarSesion(false);
+startScreenBtn.onclick = () => iniciarSesion(true);
+
+function ejecutarFiltroDeRuido() {
+    let ruidoDetectado = false;
+    let carasInvalidas = [];
+
+    Object.keys(sessionData).forEach(idCara => {
+        const historial = sessionData[idCara];
+        if (historial.length < UMBRAL_RUIDO_FRAMES) {
+            carasFiltradas[idCara] = { frames: historial.length };
+            carasInvalidas.push(idCara);
+            delete sessionData[idCara];
+            ruidoDetectado = true;
+        }
+    });
+
+    if (!ruidoDetectado) return; 
+
+    if (faceFilter) {
+        Array.from(faceFilter.options).forEach(opt => {
+            if (carasInvalidas.includes(opt.value)) faceFilter.removeChild(opt);
+        });
+        if (carasInvalidas.includes(faceFilter.value)) faceFilter.value = 'global'; 
+    }
+
+    timelineData.forEach(slot => {
+        carasInvalidas.forEach(idCara => {
+            if (slot.mods && slot.mods[idCara]) {
+                delete slot.mods[idCara];
+            }
+        });
+    });
+
+    if (discardedTable && discardedCount) {
+        discardedCount.innerText = `${Object.keys(carasFiltradas).length} descartes`;
+        discardedTable.innerHTML = "";
+        Object.keys(carasFiltradas).forEach(idCara => {
+            const info = carasFiltradas[idCara];
+            discardedTable.innerHTML += `<tr>
+                <td class="fw-bold text-danger">${idCara}</td>
+                <td class="small text-muted">Eliminada por ruido (${info.frames} frames)</td>
+            </tr>`;
+        });
+    }
+
+    actualizarTablaGlobal({}); 
+    dibujarGraficoGlobal();
+}
 
 stopBtn.onclick = () => {
     if (stream) {
@@ -97,6 +173,7 @@ stopBtn.onclick = () => {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
         startBtn.classList.remove('d-none');
+        startScreenBtn.classList.remove('d-none');
         stopBtn.classList.add('d-none');
         btnExportarPDF.classList.remove('d-none');
         
@@ -107,6 +184,8 @@ stopBtn.onclick = () => {
             cerrarSlotYAbrirNuevo(slotActivo.emocionGlobal); 
         }
 
+        ejecutarFiltroDeRuido();
+
         const segundosTotales = Math.floor((Date.now() - sessionStartTime) / 1000);
         const fechaActual = new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute:'2-digit' });
         
@@ -114,12 +193,18 @@ stopBtn.onclick = () => {
         document.getElementById('pdfDuration').innerText = `Duración de la sesión: ${formatTime(segundosTotales)}`;
         
         const totalCaras = Object.keys(sessionData).length;
+        const totalDescartadas = Object.keys(carasFiltradas).length;
         const emocionGlobal = document.getElementById('overallSentiment').innerText;
         
+        let textoRuido = totalDescartadas > 0 
+            ? `<br><br><span class="text-danger">Nota de Calidad: El algoritmo purgó automáticamente ${totalDescartadas} rostros fantasma detectados como ruido de fondo o movimiento (menos de ${UMBRAL_RUIDO_FRAMES} frames).</span>` 
+            : "";
+
         document.getElementById('pdfSummaryText').innerHTML = `
             Durante esta sesión en directo se rastrearon <strong>${totalCaras} perfiles biométricos</strong>. 
             La segmentación dinámica detectó los cambios bruscos de estado, ignorando las transiciones pasivas.
             El sentimiento global predominante fue <strong>"${emocionGlobal}"</strong>.
+            ${textoRuido}
         `;
     }
 };
@@ -132,7 +217,7 @@ async function capturarYAnalizar() {
 
     const tempCanvas = document.createElement('canvas');
     
-    const MAX_WIDTH = 480; 
+    const MAX_WIDTH = 480;
     const scale = Math.min(MAX_WIDTH / video.videoWidth, 1);
     
     tempCanvas.width = video.videoWidth * scale;
@@ -145,7 +230,10 @@ async function capturarYAnalizar() {
         const response = await fetch('http://127.0.0.1:8000/analizar', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image_base64: base64Image })
+            body: JSON.stringify({ 
+                image_base64: base64Image,
+                is_screen_share: isScreenSharing
+            })
         });
         
         if (!response.ok) throw new Error("Error en la respuesta del servidor");
@@ -174,10 +262,8 @@ async function capturarYAnalizar() {
     }
 }
 
-
 function dibujarResultados(analisis) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    faceCountBadge.innerText = `${analisis.length} Caras`;
 
     let carasEnPantalla = {}; 
     let emocionesGlobalesEsteFrame = [];
@@ -199,13 +285,17 @@ function dibujarResultados(analisis) {
 
         carasEnPantalla[idCara] = emocion;
 
-        let x1_mirror = canvas.width - x2;
-        let x2_mirror = canvas.width - x1;
+        let drawX = x1;
+        let boxWidth = x2 - x1;
+
+        if (!isScreenSharing) {
+            drawX = canvas.width - x2;
+        }
 
         ctx.strokeStyle = "#00FF00"; ctx.lineWidth = 3;
-        ctx.strokeRect(x1_mirror, y1, x2_mirror - x1_mirror, y2 - y1);
+        ctx.strokeRect(drawX, y1, boxWidth, y2 - y1);
         ctx.fillStyle = "#00FF00"; ctx.font = "bold 16px Arial";
-        ctx.fillText(idCara, x1_mirror, y1 - 7);
+        ctx.fillText(idCara, drawX, y1 - 7);
     });
 
     actualizarTablaGlobal(carasEnPantalla);
@@ -218,20 +308,30 @@ function evaluarCambioEvento(emocionesFrame) {
     let modaInstantanea = calcularModa(emocionesFrame);
     
     globalBuffer.push(modaInstantanea);
-    if (globalBuffer.length > 6) globalBuffer.shift();
+    if (globalBuffer.length > MAX_BUFFER_SIZE) globalBuffer.shift();
 
-    let modaSuavizada = calcularModa(globalBuffer);
+    if (modaInstantanea === "-" || modaInstantanea === "Procesando...") return;
 
-    if (!slotActivo.emocionGlobal && modaSuavizada !== "-" && modaSuavizada !== "Procesando...") {
-        slotActivo.emocionGlobal = modaSuavizada;
-        slotActivo.startTime = Date.now();
-        avanzarGrafico(modaSuavizada, true); 
-        return;
-    }
+    let framesRequeridos = toleranciasFrames[modaInstantanea] || 6;
 
-    if (slotActivo.emocionGlobal && modaSuavizada !== slotActivo.emocionGlobal && modaSuavizada !== "-" && modaSuavizada !== "Procesando...") {
-        if (modaSuavizada !== "Neutral") {
-            cerrarSlotYAbrirNuevo(modaSuavizada);
+    if (globalBuffer.length < framesRequeridos) return;
+
+    let bufferEvaluacion = globalBuffer.slice(-framesRequeridos);
+    let modaSuavizada = calcularModa(bufferEvaluacion);
+
+    if (modaSuavizada === modaInstantanea) {
+        
+        if (!slotActivo.emocionGlobal) {
+            slotActivo.emocionGlobal = modaSuavizada;
+            slotActivo.startTime = Date.now();
+            avanzarGrafico(modaSuavizada, true); 
+            return;
+        }
+
+        if (slotActivo.emocionGlobal !== modaSuavizada) {
+            if (modaSuavizada !== "Neutral") {
+                cerrarSlotYAbrirNuevo(modaSuavizada);
+            }
         }
     }
 }
@@ -240,7 +340,7 @@ function cerrarSlotYAbrirNuevo(nuevaEmocion) {
     let inicioRelativo = Math.floor((slotActivo.startTime - sessionStartTime) / 1000);
     let finRelativo = Math.floor((Date.now() - sessionStartTime) / 1000);
     
-    if (finRelativo - inicioRelativo < 1) return;
+    if (finRelativo - inicioRelativo < 0.5) return;
 
     let etiquetaTime = `${formatTime(inicioRelativo)} a ${formatTime(finRelativo)}`;
     let bloqueCerrado = { label: etiquetaTime, mods: {} };
@@ -307,6 +407,8 @@ function actualizarTablaGlobal(carasEnPantalla = {}) {
     });
     
     if (todasLasEmociones.length > 0) overallSentimentText.innerText = calcularModa(todasLasEmociones);
+
+    if (faceCountBadge) faceCountBadge.innerText = `${Object.keys(sessionData).length} caras`;
 }
 
 function calcularModa(arr) {
