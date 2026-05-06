@@ -14,6 +14,10 @@ const faceCountBadge = document.getElementById('faceCount');
 
 const discardedTable = document.getElementById('discardedTable');
 const discardedCount = document.getElementById('discardedCount');
+
+const facesGalleryGrid = document.getElementById('facesGalleryGrid');
+let avatarsPorCara = {};
+
 const UMBRAL_RUIDO_FRAMES = 3;
 let carasFiltradas = {};
 
@@ -93,6 +97,11 @@ async function iniciarSesion(usarPantalla = false) {
 
         if(faceFilter) faceFilter.innerHTML = '<option value="global">Global (Todas las caras)</option>';
         if (chartGlobalInstance) { chartGlobalInstance.destroy(); chartGlobalInstance = null; }
+
+        avatarsPorCara = {};
+        if (facesGalleryGrid) {
+            facesGalleryGrid.innerHTML = '<div class="col-12 text-center text-muted py-3">Aún no se han detectado caras</div>';
+        }
 
         video.onloadedmetadata = () => {
             canvas.width = video.videoWidth;
@@ -268,6 +277,8 @@ function dibujarResultados(analisis) {
     let carasEnPantalla = {}; 
     let emocionesGlobalesEsteFrame = [];
 
+    let hayNuevaCara = false;
+
     analisis.forEach(persona => {
         let [x1, y1, x2, y2] = persona.box;
         const idCara = `Cara ${persona.id_tracking}`;
@@ -277,6 +288,11 @@ function dibujarResultados(analisis) {
 
         if (!sessionData[idCara]) sessionData[idCara] = [];
         sessionData[idCara].push(emocion);
+
+        if (persona.avatar) {
+            avatarsPorCara[idCara] = persona.avatar;
+            hayNuevaCara = true;
+        }
         
         if (!slotActivo.emotionsPorCara[idCara]) slotActivo.emotionsPorCara[idCara] = [];
         slotActivo.emotionsPorCara[idCara].push(emocion);
@@ -297,6 +313,8 @@ function dibujarResultados(analisis) {
         ctx.fillStyle = "#00FF00"; ctx.font = "bold 16px Arial";
         ctx.fillText(idCara, drawX, y1 - 7);
     });
+
+    if (hayNuevaCara) renderizarGaleriaCaras();
 
     actualizarTablaGlobal(carasEnPantalla);
     evaluarCambioEvento(emocionesGlobalesEsteFrame);
@@ -420,6 +438,27 @@ function calcularModa(arr) {
         if (frecuencias[val] > maxFreq) { maxFreq = frecuencias[val]; moda = val; }
     });
     return moda;
+}
+
+function renderizarGaleriaCaras() {
+    if (!facesGalleryGrid) return;
+    facesGalleryGrid.innerHTML = "";
+    
+    const ids = Object.keys(avatarsPorCara);
+    if (ids.length === 0) {
+        facesGalleryGrid.innerHTML = '<div class="col-12 text-center text-muted py-3">Aún no se han detectado caras</div>';
+        return;
+    }
+
+    // Colocamos las fotos grandes y en cuadrícula (col-auto hace que se pongan una al lado de otra)
+    ids.forEach(id => {
+        facesGalleryGrid.innerHTML += `
+            <div class="col-auto text-center mb-2">
+                <img src="${avatarsPorCara[id]}" style="width: 85px; height: 85px; border-radius: 8px; object-fit: cover; border: 2px solid #6f42c1; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                <div class="small fw-bold mt-1 text-dark">${id}</div>
+            </div>
+        `;
+    });
 }
 
 function dibujarGraficoGlobal() {

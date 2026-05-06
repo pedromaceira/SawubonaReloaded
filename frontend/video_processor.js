@@ -12,6 +12,9 @@ const overallSentimentText = document.getElementById('overallSentiment');
 const faceCountBadge = document.getElementById('faceCount');
 const slotsTable = document.getElementById('slotsTable');
 
+const facesGalleryGrid = document.getElementById('facesGalleryGrid');
+let avatarsPorCara = {};
+
 const discardedTable = document.getElementById('discardedTable');
 const discardedCount = document.getElementById('discardedCount');
 const UMBRAL_RUIDO_FRAMES = 3;
@@ -183,10 +186,15 @@ videoInput.onchange = (e) => {
         sessionData = {};
         slotsData = [];
         carasFiltradas = {};
+        avatarsPorCara = {};
+        
+        if (facesGalleryGrid) {
+            facesGalleryGrid.innerHTML = '<div class="col-12 text-center text-muted py-3">Aún no se han detectado caras</div>';
+        }
         
         globalAnalyticsTable.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">Sin datos acumulados</td></tr>'; 
         slotsTable.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">Configura el análisis para ver los slots</td></tr>';
-        
+
         if (discardedTable) discardedTable.innerHTML = '<tr><td colspan="2" class="text-center text-muted py-2">No se ha filtrado ruido aún</td></tr>';
         if (discardedCount) discardedCount.innerText = "0 descartes";
 
@@ -508,6 +516,8 @@ function actualizarInterfaz(analisis, currentTime) {
 
     let currentSlot = slotsData.find(s => currentTime >= s.start && currentTime < s.end);
     let carasEnPantalla = {}; 
+    
+    let hayNuevaCara = false;
 
     analisis.forEach((det, index) => {
         const idCara = `Cara ${det.id_tracking}`; 
@@ -515,6 +525,11 @@ function actualizarInterfaz(analisis, currentTime) {
         if (!sessionData[idCara]) sessionData[idCara] = [];
         sessionData[idCara].push(det.emotion);
         
+        if (det.avatar) {
+            avatarsPorCara[idCara] = det.avatar;
+            hayNuevaCara = true;
+        }
+
         if (currentSlot) {
             currentSlot.emotions.push(det.emotion); 
             if (!currentSlot.emotionsPorCara[idCara]) currentSlot.emotionsPorCara[idCara] = [];
@@ -528,6 +543,8 @@ function actualizarInterfaz(analisis, currentTime) {
         ctx.fillStyle = "#00FF00"; ctx.font = "bold 16px Arial"; ctx.fillText(idCara, x1, y1 - 7);
     });
     
+    if (hayNuevaCara) renderizarGaleriaCaras();
+
     renderizarAnaliticaGlobal(carasEnPantalla); 
     evaluarProgresoSlots(currentTime);
 }
@@ -679,6 +696,26 @@ function dibujarGraficoGlobal() {
                 }
             }
         }
+    });
+}
+
+function renderizarGaleriaCaras() {
+    if (!facesGalleryGrid) return;
+    facesGalleryGrid.innerHTML = "";
+    
+    const ids = Object.keys(avatarsPorCara);
+    if (ids.length === 0) {
+        facesGalleryGrid.innerHTML = '<div class="col-12 text-center text-muted py-3">Aún no se han detectado caras</div>';
+        return;
+    }
+
+    ids.forEach(id => {
+        facesGalleryGrid.innerHTML += `
+            <div class="col-auto text-center mb-2">
+                <img src="${avatarsPorCara[id]}" style="width: 85px; height: 85px; border-radius: 8px; object-fit: cover; border: 2px solid #6f42c1; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                <div class="small fw-bold mt-1 text-dark">${id}</div>
+            </div>
+        `;
     });
 }
 

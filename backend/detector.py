@@ -1,4 +1,5 @@
 import os
+import json
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
@@ -22,13 +23,6 @@ if gpus:
     except RuntimeError as e:
         print(f"Error configurando la memoria: {e}")
 
-# CONFIGURACIÓN DE LOS MÓDULOS ENCHUFABLES
-MODULOS_ACTIVOS = {
-    "corrector_lados": "http://127.0.0.1:8001/verificar_ratio",
-    # "detector_ojos": "http://127.0.0.1:8002/verificar_ojos",  # el módulo que metimos en el backlog
-}
-
-
 class EmotionDetector:
     def __init__(self, yolo_path, emotion_model_path):
         self.face_detector = YOLO(yolo_path)
@@ -48,8 +42,12 @@ class EmotionDetector:
 
         self.known_faces = []
         self.next_id = 1
-
         self.match_threshold = 1.15
+        
+        self.face_avatars = {} 
+        self.face_avatars_metrics = {} 
+
+        self.config_microservicios = self.cargar_configuracion()
 
         print("Warm up de la GPU... por favor espera.")
         try:
@@ -67,10 +65,27 @@ class EmotionDetector:
         except Exception as e:
             print(f"Advertencia durante el calentamiento: {e}")
 
+    def cargar_configuracion(self):
+        ruta_config = "config.json"
+        try:
+            if os.path.exists(ruta_config):
+                with open(ruta_config, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+                    print("--- Configuración de Módulos Enchufables Cargada ---")
+                    return config
+            else:
+                print("--- Advertencia: No se encontró config.json, corriendo sin microservicios ---")
+                return {"microservicios": {}}
+        except Exception as e:
+            print(f"--- Error al leer config.json: {e} ---")
+            return {"microservicios": {}}
+
     def reset_memory(self):
         self.known_faces = []
         self.next_id = 1
-        print("--- Memoria biométrica formateada para el nuevo vídeo ---")
+        self.face_avatars = {} 
+        self.face_avatars_metrics = {} 
+        print("--- Memoria biométrica y galería formateadas para el nuevo vídeo ---")
 
     def get_face_id(self, face_crop):
         face_rgb = cv2.cvtColor(face_crop, cv2.COLOR_BGR2RGB)
@@ -100,8 +115,7 @@ class EmotionDetector:
             self.next_id += 1
             return self.next_id - 1
 
-    def consultar_microservicio_lados(self, face_crop, is_screen_share):
-        url = MODULOS_ACTIVOS.get("corrector_lados")
+    def consultar_microservicio(self, url, face_crop, is_screen_share):
         if not url:
             return False
 
@@ -120,11 +134,11 @@ class EmotionDetector:
                 data = response.json()
                 return data.get("valido", False)
             else:
-                print(f"Error del microservicio: {response.status_code}")
+                print(f"Error del microservicio en {url}: {response.status_code}")
                 return False
 
         except requests.exceptions.RequestException as e:
-            print(f"Error de conexión con el microservicio: {e}")
+            print(f"Error de conexión con el microservicio en {url}: {e}")
             return False
 
     def detect_and_classify(self, frame, is_screen_share=False):
@@ -151,16 +165,23 @@ class EmotionDetector:
                 aspect_ratio = ancho / alto
 
                 if aspect_ratio < umbral_ratio or aspect_ratio > 1.50:
-                    if "corrector_lados" in MODULOS_ACTIVOS:
-                        face_crop_temp = frame[y1:y2, x1:x2]
-                        if face_crop_temp.size == 0:
-                            continue
+                    cara_rescatada = False
+                    modulos_fase_1 = self.config_microservicios.get("microservicios", {}).get("fase_1_correccion", [])
+                    
+                    for modulo in modulos_fase_1:
+                        if modulo.get("activo"):
+                            face_crop_temp = frame[y1:y2, x1:x2]
+                            if face_crop_temp.size == 0:
+                                continue
 
-                        es_valido = self.consultar_microservicio_lados(face_crop_temp, is_screen_share)
-                        if not es_valido:
-                            continue
-                    else:
-                        continue
+                            es_valido = self.consultar_microservicio(modulo["url"], face_crop_temp, is_screen_share)
+                            
+                            if es_valido:
+                                cara_rescatada = True
+                                break 
+                    
+                    if not cara_rescatada:
+                        continue 
 
                 face_crop = frame[y1:y2, x1:x2]
                 if face_crop.size == 0:
@@ -174,17 +195,33 @@ class EmotionDetector:
 
                 person_id = self.get_face_id(face_crop)
 
+                score_calidad = focus_measure * (ancho * alto)
+                avatar_actualizado = False
+
+                if person_id not in self.face_avatars or score_calidad > self.face_avatars_metrics.get(person_id, 0):
+                    self.face_avatars_metrics[person_id] = score_calidad 
+                    
+                    _, buffer_avatar = cv2.imencode('.jpg', face_crop)
+                    avatar_base64 = base64.b64encode(buffer_avatar).decode('utf-8')
+                    self.face_avatars[person_id] = f"data:image/jpeg;base64,{avatar_base64}"
+                    avatar_actualizado = True 
+
                 processed_face = preprocess_face(face_crop)
                 prediction = self.emotion_classifier.predict(processed_face, verbose=0)
                 emotion_idx = np.argmax(prediction)
                 emotion_text = self.emotions[emotion_idx]
                 confidence = float(np.max(prediction))
 
-                results_list.append({
+                result_dict = {
                     "id_tracking": person_id,
                     "box": [x1, y1, x2, y2],
                     "emotion": emotion_text,
                     "confidence": confidence
-                })
+                }
+                
+                if avatar_actualizado:
+                    result_dict["avatar"] = self.face_avatars[person_id]
+
+                results_list.append(result_dict)
 
         return results_list
