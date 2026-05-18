@@ -7,6 +7,15 @@ stages:
 
 image: python:3.13-slim
 
+# se le dice a pip dónde guardar los archivos descargados
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+# se guarda esa carpeta entre distintos pipelines
+cache:
+  paths:
+    - .cache/pip
+
 # ETAPA 1: tests unitarios
 run_tests:
   stage: test
