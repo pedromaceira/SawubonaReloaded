@@ -11,4 +11,5 @@ def test_read_root():
     # se comprueba que el servidor responde con un 200 OK
     assert response.status_code == 200
     # se comprueba que el mensaje es exactamente el programado
+
     assert response.json() == {"status": "Servidor funcionando correctamente"}
