@@ -1,0 +1,33 @@
+import numpy as np
+import base64
+import cv2
+from backend.utils import base64_to_cv2, preprocess_face
+
+def test_base64_to_cv2():
+    # Creamos una imagen falsa de 1x1 píxeles en blanco usando OpenCV
+    dummy_image = np.zeros((1, 1, 3), dtype=np.uint8)
+    _, buffer = cv2.imencode('.jpg', dummy_image)
+    
+    # La convertimos a base64 (simulando lo que envía el navegador)
+    fake_base64 = base64.b64encode(buffer).decode('utf-8')
+    # Le añadimos la cabecera HTML típica para asegurar que nuestra función la limpia
+    fake_payload = f"data:image/jpeg;base64,{fake_base64}"
+    
+    # Ejecutamos TU función
+    resultado = base64_to_cv2(fake_payload)
+    
+    # Comprobamos (Assert) que el resultado es un array de Numpy y tiene forma de imagen
+    assert isinstance(resultado, np.ndarray)
+    assert resultado.shape == (1, 1, 3)
+
+def test_preprocess_face():
+    # Creamos una cara de mentira de 100x100 píxeles a color
+    fake_face = np.ones((100, 100, 3), dtype=np.uint8) * 255 
+    
+    # Ejecutamos TU función
+    resultado = preprocess_face(fake_face)
+    
+    # El modelo espera (1, 64, 64, 1), así que comprobamos que la función lo formatea bien
+    assert resultado.shape == (1, 64, 64, 1)
+    # Comprobamos que ha normalizado los píxeles (deben estar entre 0 y 1)
+    assert np.max(resultado) <= 1.0
