@@ -33,10 +33,12 @@ run_tests:
 check_quality:
   stage: quality
   script:
-    - echo "Analizando complejidad ciclomática..."
+    - echo "Instalando herramienta de métricas..."
     - pip install radon
-    - radon cc backend/ -a 
-    - echo "Análisis de calidad completado."
+    - echo "Analizando la complejidad ciclomática del código..."
+    # se analiza la carpeta backend
+    # '-s' muestra la nota (A, B, C...) y '-a' muestra la media total.
+    - radon cc backend/ -s -a
 
 # ETAPA 3: empaquetado
 build_artifact:
