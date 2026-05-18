@@ -1,0 +1,46 @@
+# se definen las etapas que se ejecutarán en orden secuencial
+stages:
+  - test
+  - quality
+  - build
+  - deploy
+
+image: python:3.13-slim
+
+# ETAPA 1: tests unitarios
+run_tests:
+  stage: test
+  script:
+    - echo "Instalando dependencias desde requirements.txt..."
+    - pip install -r requirements.txt
+    - echo "Ejecutando tests unitarios..."
+    - pytest tests/
+
+# ETAPA 2: métricas de calidad
+check_quality:
+  stage: quality
+  script:
+    - echo "Analizando complejidad ciclomática..."
+    - pip install radon
+    - radon cc backend/ -a 
+    - echo "Análisis de calidad completado."
+
+# ETAPA 3: empaquetado
+build_artifact:
+  stage: build
+  script:
+    - echo "Limpiando archivos innecesarios (como __pycache__)..."
+    - find . -name "__pycache__" -exec rm -rf {} +
+    - echo "Empaquetando código fuente..."
+  artifacts:
+    paths:
+      - backend/
+      - frontend/
+    expire_in: 1 week
+
+# ETAPA 4: despliegue al CESGA
+deploy_to_cesga:
+  stage: deploy
+  script:
+    - echo "Iniciando despliegue automático en el CESGA..."
+    - echo "Aquí irán los comandos SSH para reiniciar el servidor FastAPI"
