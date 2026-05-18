@@ -450,7 +450,6 @@ function renderizarGaleriaCaras() {
         return;
     }
 
-    // Colocamos las fotos grandes y en cuadrícula (col-auto hace que se pongan una al lado de otra)
     ids.forEach(id => {
         facesGalleryGrid.innerHTML += `
             <div class="col-auto text-center mb-2">
