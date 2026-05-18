@@ -38,17 +38,18 @@ check_quality:
     - radon cc backend/ -s -a
 
 # ETAPA 3: empaquetado
-build_artifact:
+build_package:
   stage: build
   script:
-    - echo "Limpiando archivos innecesarios (como __pycache__)..."
-    - find . -name "__pycache__" -exec rm -rf {} +
-    - echo "Empaquetando código fuente..."
+    - echo "Empaquetando el código limpio del proyecto..."
+    # se comprimen las carpetas esenciales en un archivo llamado 'proyecto_sawubona.tar.gz'
+    # se excluyen entornos virtuales locales
+    - tar -czf proyecto_sawubona.tar.gz backend/ frontend/ requirements.txt pytest.ini
   artifacts:
+    name: "paquete-instalacion-$CI_COMMIT_SHORT_SHA" # nombre dinámico con el ID del commit
     paths:
-      - backend/
-      - frontend/
-    expire_in: 1 week
+      - proyecto_sawubona.tar.gz # archivo que GitLab guardará en su web
+    expire_in: 1 week # se borra automáticamente en una semana para ahorrar espacio
 
 # ETAPA 4: despliegue al CESGA
 deploy_to_cesga:
