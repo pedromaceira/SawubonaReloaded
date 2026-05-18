@@ -15,6 +15,7 @@ variables:
 cache:
   paths:
     - .cache/pip
+  when: always
 
 # ETAPA 1: tests unitarios
 run_tests:
@@ -22,8 +23,10 @@ run_tests:
   script:
     - echo "Instalando dependencias desde requirements.txt..."
     - pip install -r requirements.txt
-    - echo "Purgando el OpenCV conflictivo que instala YOLO..."
-    - pip uninstall -y opencv-python
+    - echo "Forzando la versión de OpenCV para servidores..."
+    # se desinstalan ambas versiones por si acaso y forzamos la instalación limpia de la correcta
+    - pip uninstall -y opencv-python opencv-python-headless
+    - pip install opencv-python-headless==4.13.0.92
     - echo "Ejecutando tests unitarios..."
     - pytest tests/
 
