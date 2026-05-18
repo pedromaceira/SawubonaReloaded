@@ -22,6 +22,8 @@ run_tests:
   script:
     - echo "Instalando dependencias desde requirements.txt..."
     - pip install -r requirements.txt
+    - echo "Purgando el OpenCV conflictivo que instala YOLO..."
+    - pip uninstall -y opencv-python
     - echo "Ejecutando tests unitarios..."
     - pytest tests/
 
