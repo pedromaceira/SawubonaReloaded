@@ -55,16 +55,17 @@ build_package:
 deploy_server:
   stage: deploy
   tags:
-    - cesga-runner  # Esto obliga a GitLab a mandar el trabajo exclusivamente a tu servidor
+    - cesga-runner
   script:
     - echo "Desplegando localmente desde el interior del CESGA..."
-    # Como ya estamos dentro, cargamos el entorno y lanzamos todo directamente
     - module load cesga/system miniconda3
     - source activate sawubona_env
-    - export PYTHONPATH=$STORE/librerias_gpu:$PYTHONPATH
+    - export PYTHONPATH=\$STORE/librerias_gpu:\$PYTHONPATH
     - cd ~/usc-sawubonareloaded
-    - git checkout main
-    - git pull origin main
+    - echo "Forzando sincronización exacta con GitLab..."
+    - git fetch origin main
+    - git reset --hard origin/main
+    - git clean -fd
     - echo "Reiniciando Uvicorn..."
     - pkill -f uvicorn || true
     - nohup uvicorn backend.main:app --host 0.0.0.0 --port 8000 > uvicorn.log 2>&1 &
