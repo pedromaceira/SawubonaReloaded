@@ -54,28 +54,17 @@ build_package:
 # ETAPA 4: despliegue automático en el CESGA
 deploy_server:
   stage: deploy
-  image: alpine:latest
-  before_script:
-    - echo "Preparando el entorno SSH..."
-    - apk add --no-cache openssh-client
-    - eval $(ssh-agent -s)
-    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
-    - mkdir -p ~/.ssh
-    - chmod 700 ~/.ssh
-    - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
+  tags:
+    - cesga-runner  # Esto obliga a GitLab a mandar el trabajo exclusivamente a tu servidor
   script:
-    - echo "Conectando al CESGA para actualizar y reiniciar FastAPI..."
-    - |
-      ssh curso1544@$SERVER_IP "
-        module load cesga/system miniconda3 &&
-        source activate sawubona_env &&
-        export PYTHONPATH=\$STORE/librerias_gpu:\$PYTHONPATH &&
-        cd ~/usc-sawubonareloaded &&
-        git checkout main &&
-        git pull origin main &&
-        echo 'Reiniciando Uvicorn...' &&
-        pkill -f uvicorn || true &&
-        nohup uvicorn backend.main:app --host 0.0.0.0 --port 8000 > uvicorn.log 2>&1 &
-      "
-  only:
-    - main
+    - echo "Desplegando localmente desde el interior del CESGA..."
+    # Como ya estamos dentro, cargamos el entorno y lanzamos todo directamente
+    - module load cesga/system miniconda3
+    - source activate sawubona_env
+    - export PYTHONPATH=$STORE/librerias_gpu:$PYTHONPATH
+    - cd ~/usc-sawubonareloaded
+    - git checkout main
+    - git pull origin main
+    - echo "Reiniciando Uvicorn..."
+    - pkill -f uvicorn || true
+    - nohup uvicorn backend.main:app --host 0.0.0.0 --port 8000 > uvicorn.log 2>&1 &
