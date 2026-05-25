@@ -51,9 +51,31 @@ build_package:
       - proyecto_sawubona.tar.gz # archivo que GitLab guardará en su web
     expire_in: 1 week # se borra automáticamente en una semana para ahorrar espacio
 
-# ETAPA 4: despliegue al CESGA
-deploy_to_cesga:
+# ETAPA 4: despliegue automático en el CESGA
+deploy_server:
   stage: deploy
+  image: alpine:latest
+  before_script:
+    - echo "Preparando el entorno SSH..."
+    - apk add --no-cache openssh-client
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
   script:
-    - echo "Iniciando despliegue automático en el CESGA..."
-    - echo "Aquí irán los comandos SSH para reiniciar el servidor FastAPI"
+    - echo "Conectando al CESGA para actualizar y reiniciar FastAPI..."
+    - |
+      ssh curso1544@$SERVER_IP "
+        module load cesga/system miniconda3 &&
+        source activate sawubona_env &&
+        export PYTHONPATH=\$STORE/librerias_gpu:\$PYTHONPATH &&
+        cd ~/usc-sawubonareloaded &&
+        git checkout main &&
+        git pull origin main &&
+        echo 'Reiniciando Uvicorn...' &&
+        pkill -f uvicorn || true &&
+        nohup uvicorn backend.main:app --host 0.0.0.0 --port 8000 > uvicorn.log 2>&1 &
+      "
+  only:
+    - main
