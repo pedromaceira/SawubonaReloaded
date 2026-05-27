@@ -40,7 +40,7 @@ check_quality:
 # ETAPA 3: empaquetado del binario para Linux
 build_linux_binario:
   stage: build
-  image: python:3.10  # Entorno Python puro con mejor compatibilidad para PyInstaller
+  image: python:3.11  # Entorno Python puro con mejor compatibilidad para PyInstaller
   before_script:
     - echo "Instalando dependencias pesadas y PyInstaller (Esto tardará unos minutos)..."
     - pip install --upgrade pip
