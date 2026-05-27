@@ -37,19 +37,32 @@ check_quality:
     # '-s' muestra la nota (A, B, C...) y '-a' muestra la media total.
     - radon cc backend/ -s -a
 
-# ETAPA 3: empaquetado
-build_package:
+# ETAPA 3: empaquetado del binario para Linux
+build_linux_binario:
   stage: build
+  image: python:3.10  # Entorno Python puro con mejor compatibilidad para PyInstaller
+  before_script:
+    - echo "Instalando dependencias pesadas y PyInstaller (Esto tardará unos minutos)..."
+    - pip install --upgrade pip
+    - pip install -r requirements.txt
+    - pip install pyinstaller
   script:
-    - echo "Empaquetando el código limpio del proyecto..."
-    # se comprimen las carpetas esenciales en un archivo llamado 'proyecto_sawubona.tar.gz'
-    # se excluyen entornos virtuales locales
-    - tar -czf proyecto_sawubona.tar.gz backend/ frontend/ requirements.txt pytest.ini
+    - echo "Compilando el ejecutable para Linux..."
+    - pyinstaller --name SawubonaServer_Linux --onedir --paths backend --hidden-import uvicorn --hidden-import fastapi --hidden-import pydantic --hidden-import backend.main --hidden-import detector run_server.py
+    
+    - echo "Recreando la estructura de IA dentro del ejecutable..."
+    - mkdir -p dist/SawubonaServer_Linux/backend
+    - cp -r backend/modelos dist/SawubonaServer_Linux/backend/
+    - cp backend/config.json dist/SawubonaServer_Linux/backend/
+    
+    - echo "Empaquetando el entregable final..."
+    - cd dist
+    - tar -czvf SawubonaReloaded_Linux_v1.tar.gz SawubonaServer_Linux/
   artifacts:
-    name: "paquete-instalacion-$CI_COMMIT_SHORT_SHA" # nombre dinámico con el ID del commit
+    name: "SawubonaReloaded_Linux-$CI_COMMIT_SHORT_SHA"
     paths:
-      - proyecto_sawubona.tar.gz # archivo que GitLab guardará en su web
-    expire_in: 1 week # se borra automáticamente en una semana para ahorrar espacio
+      - dist/SawubonaReloaded_Linux_v1.tar.gz
+    expire_in: 1 week
 
 # ETAPA 4: despliegue automático en el CESGA
 deploy_server:
