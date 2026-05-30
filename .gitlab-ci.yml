@@ -57,6 +57,9 @@ deploy_server:
   script:
     - echo "Desplegando localmente desde el interior del CESGA..."
     - module load cesga/system miniconda3
+    
+    - export PATH=/usr/bin:/bin:$PATH  
+    
     - source activate sawubona_env
     - export PYTHONPATH=\$STORE/librerias_gpu:\$PYTHONPATH
     - cd ~/usc-sawubonareloaded
