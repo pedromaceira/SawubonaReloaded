@@ -25,14 +25,17 @@ if gpus:
 
 class EmotionDetector:
     def __init__(self, yolo_path, emotion_model_path):
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        print(f"--- Hardware detectado para PyTorch: {self.device.upper()} ---")
+
         self.face_detector = YOLO(yolo_path)
-        self.face_detector.to('cuda')
+        self.face_detector.to(self.device)
 
         self.emotion_classifier = load_model(emotion_model_path, compile=False)
         self.emotions = ["Enfado", "Disgusto", "Miedo", "Felicidad", "Tristeza", "Sorpresa", "Neutral"]
 
-        print("Cargando modelo FaceNet en GPU...")
-        self.facenet = InceptionResnetV1(pretrained='vggface2').eval().to('cuda')
+        print(f"Cargando modelo FaceNet en {self.device.upper()}...")
+        self.facenet = InceptionResnetV1(pretrained='vggface2').eval().to(self.device)
 
         self.trans = transforms.Compose([
             transforms.ToTensor(),
@@ -49,19 +52,19 @@ class EmotionDetector:
 
         self.config_microservicios = self.cargar_configuracion()
 
-        print("Warm up de la GPU... por favor espera.")
+        print(f"Warm up de {self.device.upper()}... por favor espera.")
         try:
             dummy_frame = np.zeros((480, 640, 3), dtype=np.uint8)
             self.face_detector.predict(dummy_frame, conf=0.20, verbose=False)
 
-            dummy_tensor = torch.zeros((1, 3, 160, 160), device='cuda')
+            dummy_tensor = torch.zeros((1, 3, 160, 160), device=self.device)
             with torch.no_grad():
                 self.facenet(dummy_tensor)
 
             dummy_face = np.zeros((1, 64, 64, 1), dtype=np.float32)
             self.emotion_classifier.predict(dummy_face, verbose=0)
 
-            print("¡GPU lista!")
+            print(f"¡{self.device.upper()} lista!")
         except Exception as e:
             print(f"Advertencia durante el calentamiento: {e}")
 
@@ -89,7 +92,7 @@ class EmotionDetector:
 
     def get_face_id(self, face_crop):
         face_rgb = cv2.cvtColor(face_crop, cv2.COLOR_BGR2RGB)
-        face_tensor = self.trans(face_rgb).unsqueeze(0).to('cuda')
+        face_tensor = self.trans(face_rgb).unsqueeze(0).to(self.device)
 
         with torch.no_grad():
             embedding = self.facenet(face_tensor)

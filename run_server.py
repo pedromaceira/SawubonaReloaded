@@ -2,37 +2,43 @@ import sys
 import os
 import uvicorn
 import multiprocessing
-import webbrowser
 import threading
 import time
+import subprocess
 
-# 1. Enseñar a Python dónde están los archivos
-ruta_actual = os.path.dirname(os.path.abspath(__file__))
-ruta_backend = os.path.join(ruta_actual, "backend")
+# 1. Rutas absolutas inteligentes
+if getattr(sys, 'frozen', False):
+    ruta_base = os.path.dirname(sys.executable)
+else:
+    ruta_base = os.path.dirname(os.path.abspath(__file__))
+
+ruta_backend = os.path.join(ruta_base, "backend")
 sys.path.insert(0, ruta_backend)
 
-# 2. Importar la API
+# 2. SOLUCIÓN A LOS MODELOS: Obligamos a Python a mirar dentro de la carpeta 'backend'
+os.chdir(ruta_backend)
+
 from backend.main import app
 
 def abrir_navegador():
-    # Esperamos 3 segundos a que FastAPI arranque del todo
     time.sleep(3)
     
-    # Construimos la ruta absoluta al archivo index.html del frontend
-    ruta_index = os.path.join(ruta_actual, "frontend", "index.html")
-    
-    # Transformamos la ruta de Windows (C:\...) a formato web (file:///C:/...)
+    # Construimos la ruta apuntando a la carpeta frontend (que está en ruta_base)
+    ruta_index = os.path.join(ruta_base, "frontend", "index.html")
     url_archivo = "file:///" + ruta_index.replace("\\", "/")
     
-    # Le decimos a Windows que lo abra
-    webbrowser.open(url_archivo)
+    # 3. SOLUCIÓN A CHROME: Comando nativo de Windows para forzar Google Chrome
+    try:
+        # Esto le dice a la consola de Windows: "Inicia Chrome con este archivo"
+        subprocess.run(['cmd', '/c', 'start', 'chrome', url_archivo])
+    except Exception:
+        # Plan B (por si Chrome no está instalado, usamos el navegador por defecto)
+        import webbrowser
+        webbrowser.open(url_archivo)
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
     print("Iniciando SawubonaReloaded Local Server...")
     
-    # Lanzamos el "abridor de pestañas" en segundo plano
     threading.Thread(target=abrir_navegador, daemon=True).start()
-    
-    # Arrancamos el motor principal
     uvicorn.run(app, host="127.0.0.1", port=8000, reload=False)
