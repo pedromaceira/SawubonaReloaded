@@ -72,9 +72,9 @@ deploy_server:
     - nohup uvicorn backend.main:app --host 0.0.0.0 --port 8000 > uvicorn.log 2>&1 &
     
     - echo "Registrando la fecha del despliegue en el README..."
-    - echo "- Despliegue automático exitoso en el CESGA: $(date +'%d/%m/%Y a las %H:%M:%S')" >> README.md
+    - echo "- Despliegue automático exitoso en el CESGA el $(date +'%d/%m/%Y a las %H:%M:%S')" >> README.md
     - git config user.email "bot-cesga@sawubona.local"
     - git config user.name "CESGA Deploy Bot"
     - git add README.md
-    - git commit -m "docs: registrar fecha de último despliegue [skip ci]" || echo "No hay cambios para commitear"
+    - git commit -m "docs - registrar fecha de último despliegue [skip ci]" || echo "No hay cambios para commitear"
     - git push origin main
