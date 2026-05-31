@@ -5,4 +5,4 @@ Sistema de visión artificial para la detección facial e inferencia de emocione
 ---
 
 ##  Registro de despliegues automáticos
-*El pipeline de GitLab registrará de forma automática cada vez que el código se despliegue con éxito en el CESGA:*
+*El pipeline de GitLab registrará de forma automática cada vez que el código se despliegue con éxito en el CESGA:*- Despliegue automático exitoso en el CESGA el 31/05/2026 a las 12:27:37
