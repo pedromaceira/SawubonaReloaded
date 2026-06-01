@@ -267,6 +267,25 @@
         </div>
     </div>
 
+    <div class="modal fade" id="correccionesModal" tabindex="-1" aria-labelledby="correccionesModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title" id="correccionesModalLabel">Correcciones encontradas</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-1">Este vídeo ya tiene <strong><span id="correccionesCount">0</span></strong> corrección(es) guardada(s) de un análisis anterior.</p>
+                    <p class="text-muted small mb-0">¿Quieres tenerlas en cuenta o prefieres analizar el vídeo desde cero?</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" id="btnAnalizarDesdeCero" class="btn btn-outline-secondary">Analizar desde cero</button>
+                    <button type="button" id="btnAplicarCorrecciones" class="btn btn-success">Aplicar correcciones</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="video_processor.js"></script>
 </body>
 </html>

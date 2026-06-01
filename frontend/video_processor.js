@@ -15,6 +15,10 @@ const slotsTable = document.getElementById('slotsTable');
 const facesGalleryGrid = document.getElementById('facesGalleryGrid');
 let avatarsPorCara = {};
 
+let hashVideoActual = null; 
+let correccionesActivas = [];  
+let aplicarCorrecciones = false; 
+
 const discardedTable = document.getElementById('discardedTable');
 const discardedCount = document.getElementById('discardedCount');
 const UMBRAL_RUIDO_FRAMES = 3;
@@ -57,6 +61,48 @@ function formatTime(seconds) {
     const m = Math.floor(seconds / 60).toString().padStart(2, '0');
     const s = Math.floor(seconds % 60).toString().padStart(2, '0');
     return `${m}:${s}`;
+}
+
+async function calcularHashVideo(file) {
+    const buffer = await file.arrayBuffer();
+    const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+const correccionesModalEl = document.getElementById('correccionesModal');
+const correccionesModal = correccionesModalEl ? new bootstrap.Modal(correccionesModalEl) : null;
+const correccionesCountSpan = document.getElementById('correccionesCount');
+const btnAplicarCorrecciones = document.getElementById('btnAplicarCorrecciones');
+const btnAnalizarDesdeCero = document.getElementById('btnAnalizarDesdeCero');
+
+let resolverModalCorrecciones = null;
+
+function preguntarCorrecciones(total) {
+    return new Promise((resolve) => {
+        if (!correccionesModal) { resolve(false); return; }
+        correccionesCountSpan.innerText = total;
+        resolverModalCorrecciones = resolve;
+        correccionesModal.show();
+    });
+}
+
+if (btnAplicarCorrecciones) {
+    btnAplicarCorrecciones.addEventListener('click', () => {
+        if (resolverModalCorrecciones) { resolverModalCorrecciones(true); resolverModalCorrecciones = null; }
+        correccionesModal.hide();
+    });
+}
+if (btnAnalizarDesdeCero) {
+    btnAnalizarDesdeCero.addEventListener('click', () => {
+        if (resolverModalCorrecciones) { resolverModalCorrecciones(false); resolverModalCorrecciones = null; }
+        correccionesModal.hide();
+    });
+}
+if (correccionesModalEl) {
+    correccionesModalEl.addEventListener('hidden.bs.modal', () => {
+        if (resolverModalCorrecciones) { resolverModalCorrecciones(false); resolverModalCorrecciones = null; }
+    });
 }
 
 video.addEventListener('timeupdate', () => {
@@ -169,30 +215,35 @@ btnExportarPDF.addEventListener('click', () => {
     window.print(); 
 });
 
-videoInput.onchange = (e) => {
+videoInput.onchange = async (e) => {
     const file = e.target.files[0];
     if (file) {
         isAnalyzing = false;
-        enviando = false; 
+        enviando = false;
         video.pause();
 
         btnPausar.className = "btn btn-warning d-none";
         btnPausar.innerHTML = "Pausar";
         btnConfigurar.classList.remove('d-none');
         btnConfigurar.disabled = false;
-        
+
         btnExportarPDF.classList.add('d-none');
 
         sessionData = {};
         slotsData = [];
         carasFiltradas = {};
         avatarsPorCara = {};
-        
+
+        // se reinician los datos de correcciones para el nuevo vídeo
+        hashVideoActual = null;
+        correccionesActivas = [];
+        aplicarCorrecciones = false;
+
         if (facesGalleryGrid) {
             facesGalleryGrid.innerHTML = '<div class="col-12 text-center text-muted py-3">Aún no se han detectado caras</div>';
         }
-        
-        globalAnalyticsTable.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">Sin datos acumulados</td></tr>'; 
+
+        globalAnalyticsTable.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">Sin datos acumulados</td></tr>';
         slotsTable.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">Configura el análisis para ver los slots</td></tr>';
 
         if (discardedTable) discardedTable.innerHTML = '<tr><td colspan="2" class="text-center text-muted py-2">No se ha filtrado ruido aún</td></tr>';
@@ -200,8 +251,8 @@ videoInput.onchange = (e) => {
 
         overallSentimentText.innerText = "-";
         faceCountBadge.innerText = "0 Caras";
-        
-        if(faceFilter) {
+
+        if (faceFilter) {
             faceFilter.innerHTML = '<option value="global">Global (Todas las caras)</option>';
         }
 
@@ -209,7 +260,7 @@ videoInput.onchange = (e) => {
             chartGlobalInstance.destroy();
             chartGlobalInstance = null;
         }
-        
+
         if (canvas.width > 0 && canvas.height > 0) {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
         }
@@ -221,10 +272,36 @@ videoInput.onchange = (e) => {
             currentTimeDisplay.innerText = "00:00";
             videoProgressBar.style.width = "0%";
             modalVideoDuration.innerText = video.duration.toFixed(1);
-            
-            intervalsList.innerHTML = ''; 
+
+            intervalsList.innerHTML = '';
             scriptTimeline.innerHTML = '<div class="progress-bar bg-secondary opacity-50 w-100" style="font-size: 0.8rem;">Añade intervalos abajo</div>';
         };
+
+        try {
+            hashVideoActual = await calcularHashVideo(file);
+            console.log("Hash del vídeo:", hashVideoActual);
+
+            const resp = await fetch(`http://127.0.0.1:8000/correcciones/${hashVideoActual}`);
+            const datos = await resp.json();
+
+            if (datos.existe) {
+                const aplicar = await preguntarCorrecciones(datos.total);
+
+                if (aplicar) {
+                    aplicarCorrecciones = true;
+                    correccionesActivas = datos.correcciones;
+                    console.log(`Se aplicarán ${correccionesActivas.length} correcciones.`);
+                } else {
+                    aplicarCorrecciones = false;
+                    correccionesActivas = [];
+                    console.log("El usuario eligió analizar desde cero.");
+                }
+            } else {
+                console.log("Este vídeo no tiene correcciones previas.");
+            }
+        } catch (err) {
+            console.warn("No se pudo consultar correcciones previas:", err);
+        }
     }
 };
 
@@ -341,6 +418,20 @@ btnComenzarReal.onclick = async () => {
             console.log("Memoria biométrica del servidor formateada.");
         } catch (error) {
             console.error("No se pudo contactar con /reset en el servidor.", error);
+        }
+
+        if (aplicarCorrecciones && hashVideoActual) {
+            try {
+                const resp = await fetch('http://127.0.0.1:8000/correcciones/cargar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ hash_video: hashVideoActual })
+                });
+                const data = await resp.json();
+                console.log(`Correcciones cargadas en el servidor: ${data.total}`);
+            } catch (error) {
+                console.error("No se pudieron cargar las correcciones en el servidor.", error);
+            }
         }
         
         video.play();
@@ -481,7 +572,7 @@ async function procesarFrame() {
         const response = await fetch('http://127.0.0.1:8000/analizar', {
             method: 'POST', 
             headers: { 'Content-Type': 'application/json' }, 
-            body: JSON.stringify({ image_base64: base64Image })
+            body: JSON.stringify({ image_base64: base64Image, tiempo_actual: video.currentTime })
         });
         
         if (!response.ok) throw new Error("Error en la respuesta del servidor");
@@ -539,8 +630,10 @@ function actualizarInterfaz(analisis, currentTime) {
         carasEnPantalla[idCara] = det.emotion;
 
         const [x1, y1, x2, y2] = det.box;
-        ctx.strokeStyle = "#00FF00"; ctx.lineWidth = 2; ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
-        ctx.fillStyle = "#00FF00"; ctx.font = "bold 16px Arial"; ctx.fillText(idCara, x1, y1 - 7);
+        const color = det.corregido ? "#FFA500" : "#00FF00";
+        const etiqueta = det.corregido ? `${idCara} (corregido)` : idCara;
+        ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+        ctx.fillStyle = color; ctx.font = "bold 16px Arial"; ctx.fillText(etiqueta, x1, y1 - 7);
     });
     
     if (hayNuevaCara) renderizarGaleriaCaras();

@@ -46,9 +46,12 @@ class EmotionDetector:
         self.known_faces = []
         self.next_id = 1
         self.match_threshold = 1.15
-        
-        self.face_avatars = {} 
-        self.face_avatars_metrics = {} 
+
+        self.face_avatars = {}
+        self.face_avatars_metrics = {}
+
+        # correcciones manuales activas para el vídeo en curso (se cargan al comenzar)
+        self.correcciones_activas = []
 
         self.config_microservicios = self.cargar_configuracion()
 
@@ -86,8 +89,9 @@ class EmotionDetector:
     def reset_memory(self):
         self.known_faces = []
         self.next_id = 1
-        self.face_avatars = {} 
-        self.face_avatars_metrics = {} 
+        self.face_avatars = {}
+        self.face_avatars_metrics = {}
+        self.correcciones_activas = []
         print("--- Memoria biométrica y galería formateadas para el nuevo vídeo ---")
 
     def get_face_id(self, face_crop):
@@ -118,6 +122,43 @@ class EmotionDetector:
             self.next_id += 1
             return self.next_id - 1
 
+    def obtener_embedding_por_id(self, person_id):
+        # traduce un id de tracking de la sesión actual a su embedding biométrico
+        for face_id, known_emb in self.known_faces:
+            if face_id == person_id:
+                return known_emb
+        return None
+
+    def cargar_correcciones(self, lista_correcciones):
+        # convierte las correcciones de la BD (embedding como lista) en tensores listos para comparar
+        self.correcciones_activas = []
+        for c in lista_correcciones:
+            emb = torch.tensor(c["embedding"], dtype=torch.float32, device=self.device).unsqueeze(0)
+            self.correcciones_activas.append({
+                "embedding": emb,
+                "inicio": c["segundo_inicio"],
+                "fin": c["segundo_fin"],
+                "emocion": c["emocion_corregida"]
+            })
+        return len(self.correcciones_activas)
+
+    def aplicar_correccion(self, person_id, tiempo_actual):
+        # devuelve la emoción corregida si la cara coincide (por embedding) con una
+        # corrección cuyo rango temporal contiene el segundo actual; None si no aplica
+        if not self.correcciones_activas:
+            return None
+
+        emb_persona = self.obtener_embedding_por_id(person_id)
+        if emb_persona is None:
+            return None
+
+        for corr in self.correcciones_activas:
+            if corr["inicio"] <= tiempo_actual <= corr["fin"]:
+                dist = torch.dist(emb_persona, corr["embedding"]).item()
+                if dist < self.match_threshold:
+                    return corr["emocion"]
+        return None
+
     def consultar_microservicio(self, url, face_crop, is_screen_share):
         if not url:
             return False
@@ -144,7 +185,7 @@ class EmotionDetector:
             print(f"Error de conexión con el microservicio en {url}: {e}")
             return False
 
-    def detect_and_classify(self, frame, is_screen_share=False):
+    def detect_and_classify(self, frame, is_screen_share=False, tiempo_actual=None):
         results_list = []
 
         umbral_tamano = 30 if is_screen_share else 50
@@ -170,7 +211,7 @@ class EmotionDetector:
                 if aspect_ratio < umbral_ratio or aspect_ratio > 1.50:
                     cara_rescatada = False
                     modulos_fase_1 = self.config_microservicios.get("microservicios", {}).get("fase_1_correccion", [])
-                    
+
                     for modulo in modulos_fase_1:
                         if modulo.get("activo"):
                             face_crop_temp = frame[y1:y2, x1:x2]
@@ -178,13 +219,13 @@ class EmotionDetector:
                                 continue
 
                             es_valido = self.consultar_microservicio(modulo["url"], face_crop_temp, is_screen_share)
-                            
+
                             if es_valido:
                                 cara_rescatada = True
-                                break 
-                    
+                                break
+
                     if not cara_rescatada:
-                        continue 
+                        continue
 
                 face_crop = frame[y1:y2, x1:x2]
                 if face_crop.size == 0:
@@ -202,12 +243,12 @@ class EmotionDetector:
                 avatar_actualizado = False
 
                 if person_id not in self.face_avatars or score_calidad > self.face_avatars_metrics.get(person_id, 0):
-                    self.face_avatars_metrics[person_id] = score_calidad 
-                    
+                    self.face_avatars_metrics[person_id] = score_calidad
+
                     _, buffer_avatar = cv2.imencode('.jpg', face_crop)
                     avatar_base64 = base64.b64encode(buffer_avatar).decode('utf-8')
                     self.face_avatars[person_id] = f"data:image/jpeg;base64,{avatar_base64}"
-                    avatar_actualizado = True 
+                    avatar_actualizado = True
 
                 processed_face = preprocess_face(face_crop)
                 prediction = self.emotion_classifier.predict(processed_face, verbose=0)
@@ -215,13 +256,22 @@ class EmotionDetector:
                 emotion_text = self.emotions[emotion_idx]
                 confidence = float(np.max(prediction))
 
+                corregido = False
+                if tiempo_actual is not None:
+                    emocion_corregida = self.aplicar_correccion(person_id, tiempo_actual)
+                    if emocion_corregida is not None:
+                        emotion_text = emocion_corregida
+                        confidence = 1.0
+                        corregido = True
+
                 result_dict = {
                     "id_tracking": person_id,
                     "box": [x1, y1, x2, y2],
                     "emotion": emotion_text,
-                    "confidence": confidence
+                    "confidence": confidence,
+                    "corregido": corregido
                 }
-                
+
                 if avatar_actualizado:
                     result_dict["avatar"] = self.face_avatars[person_id]
 
