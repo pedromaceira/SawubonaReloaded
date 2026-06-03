@@ -121,7 +121,6 @@ if (correccionesModalEl) {
     });
 }
 
-
 function actualizarSelectorCarasCorreccion() {
     if (!correccionCara) return;
     const seleccionActual = correccionCara.value;
@@ -154,7 +153,6 @@ function actualizarEstadoPanelCorreccion() {
     }
 }
 
-// pinta el listado de correcciones guardadas del vídeo actual (inicio–fin / cara / emoción)
 async function renderListaCorrecciones() {
     if (!listaCorrecciones || !hashVideoActual) return;
     try {
@@ -182,7 +180,6 @@ async function renderListaCorrecciones() {
     }
 }
 
-// borrado de correcciones (con confirmación en modal)
 if (listaCorrecciones) {
     listaCorrecciones.addEventListener('click', (e) => {
         const btn = e.target.closest('.btn-borrar-correccion');
@@ -224,7 +221,6 @@ if (btnConfirmarBorrado) {
     });
 }
 
-// si se cierra el modal sin confirmar, se limpia la selección
 if (borrarModalEl) {
     borrarModalEl.addEventListener('hidden.bs.modal', () => { idCorreccionABorrar = null; });
 }
@@ -319,6 +315,34 @@ video.addEventListener('timeupdate', () => {
     currentTimeDisplay.innerText = formatTime(video.currentTime);
     const progressPct = (video.currentTime / video.duration) * 100;
     videoProgressBar.style.width = `${progressPct}%`;
+});
+
+video.addEventListener('play', () => {
+    if (slotsData.length > 0 && !video.ended && !isAnalyzing) {
+        isAnalyzing = true;
+        btnPausar.className = "btn btn-warning";
+        btnPausar.innerHTML = "Pausar";
+        if (panelCorreccion) panelCorreccion.style.display = "none";
+        procesarFrame();
+    }
+});
+
+video.addEventListener('pause', () => {
+    if (isAnalyzing && !video.ended) {
+        isAnalyzing = false;
+        btnPausar.className = "btn btn-success";
+        btnPausar.innerHTML = "Reanudar";
+        actualizarEstadoPanelCorreccion();
+    }
+});
+
+video.addEventListener('click', () => {
+    if (slotsData.length === 0 || video.ended) return;
+    if (video.paused) {
+        video.play();
+    } else {
+        video.pause();
+    }
 });
 
 radioAuto.addEventListener('change', () => {
@@ -430,7 +454,6 @@ videoInput.onchange = async (e) => {
         isAnalyzing = false;
         enviando = false;
         video.pause();
-        video.controls = false;
 
         btnPausar.className = "btn btn-warning d-none";
         btnPausar.innerHTML = "Pausar";
@@ -630,7 +653,6 @@ btnComenzarReal.onclick = async () => {
         btnPausar.innerHTML = "Pausar";
 
         if (panelCorreccion) panelCorreccion.style.display = "none";
-        video.controls = false;
 
         try {
             await fetch('http://127.0.0.1:8000/reset', { method: 'POST' });
@@ -653,6 +675,7 @@ btnComenzarReal.onclick = async () => {
             }
         }
 
+        video.currentTime = 0;
         video.play();
         isAnalyzing = true;
         procesarFrame();
@@ -749,7 +772,6 @@ video.onended = () => {
 
     ejecutarFiltroDeRuido();
 
-    video.controls = true;
     actualizarEstadoPanelCorreccion();
 
     const fechaActual = new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
