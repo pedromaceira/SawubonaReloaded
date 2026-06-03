@@ -16,13 +16,14 @@ const facesGalleryGrid = document.getElementById('facesGalleryGrid');
 let avatarsPorCara = {};
 
 let hashVideoActual = null; 
-let correccionesActivas = [];  
-let aplicarCorrecciones = false; 
+let nombreVideoActual = "";  
+let correccionesActivas = []; 
+let aplicarCorrecciones = false;
 
 const discardedTable = document.getElementById('discardedTable');
 const discardedCount = document.getElementById('discardedCount');
 const UMBRAL_RUIDO_FRAMES = 3;
-let carasFiltradas = {}; 
+let carasFiltradas = {};
 
 const currentTimeDisplay = document.getElementById('currentTimeDisplay');
 const durationDisplay = document.getElementById('durationDisplay');
@@ -30,10 +31,10 @@ const videoProgressBar = document.getElementById('videoProgressBar');
 
 const radioAuto = document.getElementById('modeAuto');
 const radioCustom = document.getElementById('modeCustom');
-const radioJson = document.getElementById('modeJson'); 
+const radioJson = document.getElementById('modeJson');
 const customScriptContainer = document.getElementById('customScriptContainer');
-const jsonScriptContainer = document.getElementById('jsonScriptContainer'); 
-const customScriptInput = document.getElementById('customScriptInput'); 
+const jsonScriptContainer = document.getElementById('jsonScriptContainer');
+const customScriptInput = document.getElementById('customScriptInput');
 
 const intervalsList = document.getElementById('intervalsList');
 const btnAddInterval = document.getElementById('btnAddInterval');
@@ -51,10 +52,25 @@ const emotionColors = {
 };
 
 let isAnalyzing = false;
-let enviando = false; 
-let sessionData = {}; 
-let slotsData = [];   
+let enviando = false;
+let sessionData = {};
+let slotsData = [];
 const DEFAULT_NUM_SLOTS = 10;
+
+const panelCorreccion = document.getElementById('panelCorreccion');
+const btnMarcarInicio = document.getElementById('btnMarcarInicio');
+const btnMarcarFin = document.getElementById('btnMarcarFin');
+const correccionInicio = document.getElementById('correccionInicio');
+const correccionFin = document.getElementById('correccionFin');
+const correccionCara = document.getElementById('correccionCara');
+const correccionEmocion = document.getElementById('correccionEmocion');
+const btnGuardarCorreccion = document.getElementById('btnGuardarCorreccion');
+const correccionFeedback = document.getElementById('correccionFeedback');
+const listaCorrecciones = document.getElementById('listaCorrecciones');
+const borrarModalEl = document.getElementById('borrarCorreccionModal');
+const borrarModal = borrarModalEl ? new bootstrap.Modal(borrarModalEl) : null;
+const btnConfirmarBorrado = document.getElementById('btnConfirmarBorrado');
+let idCorreccionABorrar = null;
 
 function formatTime(seconds) {
     if (isNaN(seconds)) return "00:00";
@@ -105,6 +121,199 @@ if (correccionesModalEl) {
     });
 }
 
+
+function actualizarSelectorCarasCorreccion() {
+    if (!correccionCara) return;
+    const seleccionActual = correccionCara.value;
+    const ids = Object.keys(avatarsPorCara);
+    correccionCara.innerHTML = "";
+    if (ids.length === 0) {
+        correccionCara.innerHTML = '<option value="">Sin caras detectadas</option>';
+        return;
+    }
+    ids.forEach(id => {
+        const opt = document.createElement('option');
+        opt.value = id;
+        opt.innerText = id;
+        correccionCara.appendChild(opt);
+    });
+    if (ids.includes(seleccionActual)) correccionCara.value = seleccionActual;
+}
+
+function actualizarEstadoPanelCorreccion() {
+    if (!panelCorreccion) return;
+    const hayCaras = Object.keys(avatarsPorCara).length > 0;
+    if (!isAnalyzing && hayCaras) {
+        panelCorreccion.style.display = "";
+        actualizarSelectorCarasCorreccion();
+        if (correccionInicio.value === "") correccionInicio.value = video.currentTime.toFixed(1);
+        if (correccionFin.value === "") correccionFin.value = video.currentTime.toFixed(1);
+        renderListaCorrecciones();
+    } else {
+        panelCorreccion.style.display = "none";
+    }
+}
+
+// pinta el listado de correcciones guardadas del vídeo actual (inicio–fin / cara / emoción)
+async function renderListaCorrecciones() {
+    if (!listaCorrecciones || !hashVideoActual) return;
+    try {
+        const resp = await fetch(`http://127.0.0.1:8000/correcciones/${hashVideoActual}`);
+        const datos = await resp.json();
+        const items = datos.correcciones || [];
+
+        if (items.length === 0) {
+            listaCorrecciones.innerHTML = '<div class="text-muted small text-center py-2">Aún no hay correcciones guardadas para este vídeo</div>';
+            return;
+        }
+
+        listaCorrecciones.innerHTML = items.map(c => {
+            const colorClase = emotionColors[c.emocion_corregida] || 'bg-secondary';
+            const cara = (c.id_tracking !== null && c.id_tracking !== undefined) ? `Cara ${c.id_tracking}` : 'Cara —';
+            return `<div class="d-flex align-items-center justify-content-between border-bottom py-1">
+                <span class="small fw-bold text-nowrap" style="color:#fd7e14;">${c.segundo_inicio.toFixed(1)}s – ${c.segundo_fin.toFixed(1)}s</span>
+                <span class="small text-muted mx-2 text-nowrap">${cara}</span>
+                <span class="badge ${colorClase}">${c.emocion_corregida}</span>
+                <button class="btn btn-sm btn-link text-danger p-0 ms-2 btn-borrar-correccion" data-id="${c.id}" title="Borrar corrección">🗑</button>
+            </div>`;
+        }).join('');
+    } catch (err) {
+        console.warn("No se pudo cargar la lista de correcciones:", err);
+    }
+}
+
+// borrado de correcciones (con confirmación en modal)
+if (listaCorrecciones) {
+    listaCorrecciones.addEventListener('click', (e) => {
+        const btn = e.target.closest('.btn-borrar-correccion');
+        if (!btn) return;
+        idCorreccionABorrar = parseInt(btn.dataset.id);
+        if (borrarModal) borrarModal.show();
+    });
+}
+
+if (btnConfirmarBorrado) {
+    btnConfirmarBorrado.addEventListener('click', async () => {
+        if (idCorreccionABorrar === null) return;
+        try {
+            const resp = await fetch(`http://127.0.0.1:8000/correcciones/${idCorreccionABorrar}`, { method: 'DELETE' });
+            if (!resp.ok) throw new Error("Respuesta no OK del servidor");
+            console.log(`Corrección ${idCorreccionABorrar} borrada.`);
+
+            if (hashVideoActual) {
+                try {
+                    const r2 = await fetch('http://127.0.0.1:8000/correcciones/cargar', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ hash_video: hashVideoActual })
+                    });
+                    const d2 = await r2.json();
+                    console.log(`Correcciones recargadas en el servidor: ${d2.total}`);
+                } catch (e) {
+                    console.warn("No se pudieron recargar las correcciones tras borrar.", e);
+                }
+            }
+
+            renderListaCorrecciones();
+        } catch (err) {
+            console.error("Error borrando la corrección:", err);
+        } finally {
+            idCorreccionABorrar = null;
+            if (borrarModal) borrarModal.hide();
+        }
+    });
+}
+
+// si se cierra el modal sin confirmar, se limpia la selección
+if (borrarModalEl) {
+    borrarModalEl.addEventListener('hidden.bs.modal', () => { idCorreccionABorrar = null; });
+}
+
+if (btnMarcarInicio) btnMarcarInicio.addEventListener('click', () => { correccionInicio.value = video.currentTime.toFixed(1); });
+if (btnMarcarFin) btnMarcarFin.addEventListener('click', () => { correccionFin.value = video.currentTime.toFixed(1); });
+
+if (btnGuardarCorreccion) {
+    btnGuardarCorreccion.addEventListener('click', async () => {
+        correccionFeedback.innerText = "";
+        correccionFeedback.className = "small mt-2";
+
+        if (!hashVideoActual) {
+            correccionFeedback.className = "small mt-2 text-danger";
+            correccionFeedback.innerText = "No hay vídeo cargado.";
+            return;
+        }
+
+        const inicio = parseFloat(correccionInicio.value);
+        const fin = parseFloat(correccionFin.value);
+        const caraSel = correccionCara.value;
+        const emocion = correccionEmocion.value;
+
+        if (isNaN(inicio) || isNaN(fin) || inicio < 0 || fin <= inicio) {
+            correccionFeedback.className = "small mt-2 text-danger";
+            correccionFeedback.innerText = "Rango de tiempo no válido (el inicio debe ser menor que el fin).";
+            return;
+        }
+        if (video.duration && fin > video.duration) {
+            correccionFeedback.className = "small mt-2 text-danger";
+            correccionFeedback.innerText = `El fin (${fin}s) excede la duración del vídeo (${video.duration.toFixed(1)}s).`;
+            return;
+        }
+        if (!caraSel) {
+            correccionFeedback.className = "small mt-2 text-danger";
+            correccionFeedback.innerText = "Selecciona una cara.";
+            return;
+        }
+
+        const idTracking = parseInt(caraSel.match(/\d+/)[0]);
+
+        try {
+            const resp = await fetch('http://127.0.0.1:8000/correcciones/guardar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    hash_video: hashVideoActual,
+                    nombre_original: nombreVideoActual,
+                    duracion: video.duration || 0.0,
+                    id_tracking: idTracking,
+                    segundo_inicio: inicio,
+                    segundo_fin: fin,
+                    emocion_corregida: emocion
+                })
+            });
+
+            if (resp.status === 404) {
+                correccionFeedback.className = "small mt-2 text-danger";
+                correccionFeedback.innerText = "Esa cara ya no está en memoria del servidor. Vuelve a analizar el vídeo antes de corregir.";
+                return;
+            }
+            if (!resp.ok) throw new Error("Respuesta no OK del servidor");
+
+            const data = await resp.json();
+
+            try {
+                const r2 = await fetch('http://127.0.0.1:8000/correcciones/cargar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ hash_video: hashVideoActual })
+                });
+                const d2 = await r2.json();
+                aplicarCorrecciones = true;
+                console.log(`Correcciones recargadas en el servidor: ${d2.total}`);
+            } catch (e) {
+                console.warn("No se pudieron recargar las correcciones en el servidor.", e);
+            }
+
+            correccionFeedback.className = "small mt-2 text-success";
+            correccionFeedback.innerText = `Corrección guardada (#${data.id_correccion}). Para que afecte a todas las métricas, vuelve a analizar el vídeo.`;
+            renderListaCorrecciones();
+        } catch (err) {
+            console.error("Error guardando la corrección:", err);
+            correccionFeedback.className = "small mt-2 text-danger";
+            correccionFeedback.innerText = "Error guardando la corrección. Revisa la consola.";
+        }
+    });
+}
+
 video.addEventListener('timeupdate', () => {
     if (!video.duration) return;
     currentTimeDisplay.innerText = formatTime(video.currentTime);
@@ -112,15 +321,15 @@ video.addEventListener('timeupdate', () => {
     videoProgressBar.style.width = `${progressPct}%`;
 });
 
-radioAuto.addEventListener('change', () => { 
-    customScriptContainer.classList.add('d-none'); 
+radioAuto.addEventListener('change', () => {
+    customScriptContainer.classList.add('d-none');
     jsonScriptContainer.classList.add('d-none');
 });
 
 radioCustom.addEventListener('change', () => {
     customScriptContainer.classList.remove('d-none');
     jsonScriptContainer.classList.add('d-none');
-    if(intervalsList.children.length === 0) btnAddInterval.click();
+    if (intervalsList.children.length === 0) btnAddInterval.click();
     actualizarTimeline();
 });
 
@@ -159,7 +368,7 @@ intervalsList.addEventListener('click', (e) => {
 });
 
 function actualizarTimeline() {
-    const duration = video.duration || 1; 
+    const duration = video.duration || 1;
     const rows = document.querySelectorAll('.interval-row');
     let validIntervals = [];
 
@@ -207,12 +416,12 @@ function sincronizarDimensiones() {
 
 window.onresize = sincronizarDimensiones;
 
-if(faceFilter) {
+if (faceFilter) {
     faceFilter.addEventListener('change', dibujarGraficoGlobal);
 }
 
 btnExportarPDF.addEventListener('click', () => {
-    window.print(); 
+    window.print();
 });
 
 videoInput.onchange = async (e) => {
@@ -221,6 +430,7 @@ videoInput.onchange = async (e) => {
         isAnalyzing = false;
         enviando = false;
         video.pause();
+        video.controls = false;
 
         btnPausar.className = "btn btn-warning d-none";
         btnPausar.innerHTML = "Pausar";
@@ -234,10 +444,16 @@ videoInput.onchange = async (e) => {
         carasFiltradas = {};
         avatarsPorCara = {};
 
-        // se reinician los datos de correcciones para el nuevo vídeo
         hashVideoActual = null;
+        nombreVideoActual = file.name;
         correccionesActivas = [];
         aplicarCorrecciones = false;
+
+        if (panelCorreccion) panelCorreccion.style.display = "none";
+        if (correccionInicio) correccionInicio.value = "";
+        if (correccionFin) correccionFin.value = "";
+        if (correccionFeedback) correccionFeedback.innerText = "";
+        if (listaCorrecciones) listaCorrecciones.innerHTML = '<div class="text-muted small text-center py-2">Aún no hay correcciones guardadas para este vídeo</div>';
 
         if (facesGalleryGrid) {
             facesGalleryGrid.innerHTML = '<div class="col-12 text-center text-muted py-3">Aún no se han detectado caras</div>';
@@ -307,14 +523,14 @@ videoInput.onchange = async (e) => {
 
 function inicializarSlots() {
     slotsData = [];
-    sessionData = {}; 
+    sessionData = {};
     const duration = video.duration;
 
     const pushSlot = (id, start, end, expected) => {
         slotsData.push({
             id: id, start: start, end: end, expected: expected,
-            emotions: [], 
-            emotionsPorCara: {}, 
+            emotions: [],
+            emotionsPorCara: {},
             moda: "Procesando...", finished: false
         });
     };
@@ -324,7 +540,7 @@ function inicializarSlots() {
         for (let i = 0; i < DEFAULT_NUM_SLOTS; i++) {
             pushSlot(i + 1, i * slotDuration, (i + 1) * slotDuration, "-");
         }
-    } 
+    }
     else if (radioCustom.checked) {
         const rows = document.querySelectorAll('.interval-row');
         if (rows.length === 0) { alert("Añade al menos un intervalo de tiempo."); return false; }
@@ -396,10 +612,10 @@ function inicializarSlots() {
 
         } catch (error) {
             alert("Error en el formato JSON. Revisa las llaves, comillas y comas.\n\n" + error.message);
-            return false; 
+            return false;
         }
     }
-    
+
     renderizarTablaSlots();
     return true;
 }
@@ -408,10 +624,13 @@ btnComenzarReal.onclick = async () => {
     if (inicializarSlots()) {
         const modalInstance = bootstrap.Modal.getInstance(document.getElementById('configModal'));
         modalInstance.hide();
-        
+
         btnConfigurar.classList.add('d-none');
-        btnPausar.className = "btn btn-warning"; 
+        btnPausar.className = "btn btn-warning";
         btnPausar.innerHTML = "Pausar";
+
+        if (panelCorreccion) panelCorreccion.style.display = "none";
+        video.controls = false;
 
         try {
             await fetch('http://127.0.0.1:8000/reset', { method: 'POST' });
@@ -433,7 +652,7 @@ btnComenzarReal.onclick = async () => {
                 console.error("No se pudieron cargar las correcciones en el servidor.", error);
             }
         }
-        
+
         video.play();
         isAnalyzing = true;
         procesarFrame();
@@ -446,11 +665,13 @@ btnPausar.onclick = () => {
         isAnalyzing = false;
         btnPausar.innerHTML = "Reanudar";
         btnPausar.className = "btn btn-success";
+        actualizarEstadoPanelCorreccion();
     } else {
         video.play();
         isAnalyzing = true;
         btnPausar.innerHTML = "Pausar";
         btnPausar.className = "btn btn-warning";
+        if (panelCorreccion) panelCorreccion.style.display = "none";
         procesarFrame();
     }
 };
@@ -496,8 +717,8 @@ function ejecutarFiltroDeRuido() {
             emocionesValidas.push(...historialCara);
         });
         slot.emotions = emocionesValidas;
-        
-        if(slot.finished) {
+
+        if (slot.finished) {
             slot.moda = calcularModa(emocionesValidas);
         }
     });
@@ -514,13 +735,13 @@ function ejecutarFiltroDeRuido() {
         });
     }
 
-    renderizarAnaliticaGlobal({}); 
+    renderizarAnaliticaGlobal({});
     renderizarTablaSlots();
 }
 
 video.onended = () => {
     isAnalyzing = false;
-    btnPausar.className = "btn btn-warning d-none"; 
+    btnPausar.className = "btn btn-warning d-none";
     btnConfigurar.classList.remove('d-none');
     btnExportarPDF.classList.remove('d-none');
 
@@ -528,16 +749,19 @@ video.onended = () => {
 
     ejecutarFiltroDeRuido();
 
+    video.controls = true;
+    actualizarEstadoPanelCorreccion();
+
     const fechaActual = new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
     document.getElementById('pdfDate').innerText = `Fecha: ${fechaActual}`;
     document.getElementById('pdfDuration').innerText = `Duración analizada: ${formatTime(video.duration)}`;
-    
+
     const totalCaras = Object.keys(sessionData).length;
     const totalDescartadas = Object.keys(carasFiltradas).length;
     const emocionGlobal = document.getElementById('overallSentiment').innerText;
-    
-    let textoRuido = totalDescartadas > 0 
-        ? `<br><span class="text-danger">Nota de Calidad: El algoritmo purgó automáticamente ${totalDescartadas} rostros fantasma detectados como ruido de fondo o movimiento (menos de ${UMBRAL_RUIDO_FRAMES} frames).</span>` 
+
+    let textoRuido = totalDescartadas > 0
+        ? `<br><span class="text-danger">Nota de Calidad: El algoritmo purgó automáticamente ${totalDescartadas} rostros fantasma detectados como ruido de fondo o movimiento (menos de ${UMBRAL_RUIDO_FRAMES} frames).</span>`
         : "";
 
     document.getElementById('pdfSummaryText').innerHTML = `
@@ -550,35 +774,35 @@ video.onended = () => {
 
 async function procesarFrame() {
     if (video.paused || video.ended || !isAnalyzing) return;
-    
+
     if (enviando) {
         requestAnimationFrame(procesarFrame);
         return;
     }
 
-    enviando = true; 
+    enviando = true;
 
     const tempCanvas = document.createElement('canvas');
     const MAX_WIDTH = 640;
-    const scale = Math.min(MAX_WIDTH / video.videoWidth, 1); 
-    
+    const scale = Math.min(MAX_WIDTH / video.videoWidth, 1);
+
     tempCanvas.width = video.videoWidth * scale;
     tempCanvas.height = video.videoHeight * scale;
-    
+
     tempCanvas.getContext('2d').drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
     const base64Image = tempCanvas.toDataURL('image/jpeg', 0.6);
 
     try {
         const response = await fetch('http://127.0.0.1:8000/analizar', {
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' }, 
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ image_base64: base64Image, tiempo_actual: video.currentTime })
         });
-        
+
         if (!response.ok) throw new Error("Error en la respuesta del servidor");
-        
+
         const data = await response.json();
-        
+
         const analisisEscalado = data.analisis.map(cara => ({
             ...cara,
             box: [
@@ -588,41 +812,41 @@ async function procesarFrame() {
                 cara.box[3] / scale
             ]
         }));
-        
+
         if (isAnalyzing) {
             actualizarInterfaz(analisisEscalado, video.currentTime);
         }
-    } catch (err) { 
-        console.error("Error conectando con el CESGA:", err); 
+    } catch (err) {
+        console.error("Error conectando con el CESGA:", err);
     } finally {
-        enviando = false; 
-        requestAnimationFrame(procesarFrame); 
+        enviando = false;
+        requestAnimationFrame(procesarFrame);
     }
 }
 
 function actualizarInterfaz(analisis, currentTime) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
+
     faceCountBadge.innerText = `${Object.keys(sessionData).length} Caras detectadas`;
 
     let currentSlot = slotsData.find(s => currentTime >= s.start && currentTime < s.end);
-    let carasEnPantalla = {}; 
-    
+    let carasEnPantalla = {};
+
     let hayNuevaCara = false;
 
     analisis.forEach((det, index) => {
-        const idCara = `Cara ${det.id_tracking}`; 
-        
+        const idCara = `Cara ${det.id_tracking}`;
+
         if (!sessionData[idCara]) sessionData[idCara] = [];
         sessionData[idCara].push(det.emotion);
-        
+
         if (det.avatar) {
             avatarsPorCara[idCara] = det.avatar;
             hayNuevaCara = true;
         }
 
         if (currentSlot) {
-            currentSlot.emotions.push(det.emotion); 
+            currentSlot.emotions.push(det.emotion);
             if (!currentSlot.emotionsPorCara[idCara]) currentSlot.emotionsPorCara[idCara] = [];
             currentSlot.emotionsPorCara[idCara].push(det.emotion);
         }
@@ -635,17 +859,17 @@ function actualizarInterfaz(analisis, currentTime) {
         ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
         ctx.fillStyle = color; ctx.font = "bold 16px Arial"; ctx.fillText(etiqueta, x1, y1 - 7);
     });
-    
+
     if (hayNuevaCara) renderizarGaleriaCaras();
 
-    renderizarAnaliticaGlobal(carasEnPantalla); 
+    renderizarAnaliticaGlobal(carasEnPantalla);
     evaluarProgresoSlots(currentTime);
 }
 
 function renderizarAnaliticaGlobal(carasEnPantalla = {}) {
     globalAnalyticsTable.innerHTML = "";
     let todasLasEmociones = [];
-    
+
     Object.keys(sessionData).forEach(id => {
         if (faceFilter && ![...faceFilter.options].some(opt => opt.value === id)) {
             const newOption = document.createElement('option');
@@ -657,7 +881,7 @@ function renderizarAnaliticaGlobal(carasEnPantalla = {}) {
         const historial = sessionData[id];
         const moda = calcularModa(historial);
         todasLasEmociones.push(...historial);
-        
+
         let badgeActual = `<span class="badge bg-light text-muted border">No visible</span>`;
         if (carasEnPantalla[id]) {
             const colorClase = emotionColors[carasEnPantalla[id]] || 'bg-primary';
@@ -673,10 +897,10 @@ function renderizarAnaliticaGlobal(carasEnPantalla = {}) {
             <td class="text-muted small">${historial.length} frames</td>
         </tr>`;
     });
-    
+
     if (todasLasEmociones.length > 0) overallSentimentText.innerText = calcularModa(todasLasEmociones);
-    
-    if(faceCountBadge) faceCountBadge.innerText = `${Object.keys(sessionData).length} caras`;
+
+    if (faceCountBadge) faceCountBadge.innerText = `${Object.keys(sessionData).length} caras`;
 }
 
 function calcularModa(arr) {
@@ -717,28 +941,28 @@ function finalizarUltimoSlot() {
 function dibujarGraficoGlobal() {
     if (slotsData.length === 0) return;
     const ctxChart = document.getElementById('graficoGlobal').getContext('2d');
-    const selectedFace = faceFilter ? faceFilter.value : 'global'; 
+    const selectedFace = faceFilter ? faceFilter.value : 'global';
 
     const etiquetasX = slotsData.map(s => `${s.start.toFixed(0)}s - ${s.end.toFixed(0)}s`);
     const datosGuion = slotsData.map(s => s.expected !== "-" && mapaEmociones[s.expected] !== undefined ? mapaEmociones[s.expected] : null);
-    
+
     const datosReales = slotsData.map(s => {
         if (!s.finished) return null;
-        
+
         let emocionFinal = "-";
         if (selectedFace === 'global') {
-            emocionFinal = s.moda; 
+            emocionFinal = s.moda;
         } else {
             const emocionesDeEstaPersona = s.emotionsPorCara[selectedFace] || [];
             emocionFinal = calcularModa(emocionesDeEstaPersona);
         }
 
-        return (emocionFinal !== "-" && emocionFinal !== "Procesando..." && mapaEmociones[emocionFinal] !== undefined) 
-               ? mapaEmociones[emocionFinal] 
-               : null;
+        return (emocionFinal !== "-" && emocionFinal !== "Procesando..." && mapaEmociones[emocionFinal] !== undefined)
+            ? mapaEmociones[emocionFinal]
+            : null;
     });
 
-    if (chartGlobalInstance) chartGlobalInstance.destroy(); 
+    if (chartGlobalInstance) chartGlobalInstance.destroy();
 
     const labelReal = selectedFace === 'global' ? 'Moda Global (Real)' : `Emoción de ${selectedFace}`;
 
@@ -750,8 +974,8 @@ function dibujarGraficoGlobal() {
                 {
                     label: 'Guion (Esperado)',
                     data: datosGuion,
-                    borderColor: 'rgba(100, 100, 100, 0.5)', 
-                    borderDash: [5, 5], 
+                    borderColor: 'rgba(100, 100, 100, 0.5)',
+                    borderDash: [5, 5],
                     tension: 0.1,
                     fill: false,
                     pointBackgroundColor: 'rgba(100, 100, 100, 0.5)'
@@ -759,9 +983,9 @@ function dibujarGraficoGlobal() {
                 {
                     label: labelReal,
                     data: datosReales,
-                    borderColor: 'rgba(13, 110, 253, 1)', 
+                    borderColor: 'rgba(13, 110, 253, 1)',
                     backgroundColor: 'rgba(13, 110, 253, 0.1)',
-                    tension: 0.3, 
+                    tension: 0.3,
                     fill: true,
                     pointBackgroundColor: 'rgba(13, 110, 253, 1)',
                     pointRadius: 4
@@ -795,7 +1019,7 @@ function dibujarGraficoGlobal() {
 function renderizarGaleriaCaras() {
     if (!facesGalleryGrid) return;
     facesGalleryGrid.innerHTML = "";
-    
+
     const ids = Object.keys(avatarsPorCara);
     if (ids.length === 0) {
         facesGalleryGrid.innerHTML = '<div class="col-12 text-center text-muted py-3">Aún no se han detectado caras</div>';
@@ -810,6 +1034,8 @@ function renderizarGaleriaCaras() {
             </div>
         `;
     });
+
+    actualizarSelectorCarasCorreccion();
 }
 
 function renderizarTablaSlots() {
@@ -817,24 +1043,24 @@ function renderizarTablaSlots() {
     if (slotsData.length === 0) return;
 
     slotsData.forEach(slot => {
-        const startSec = slot.start.toFixed(1); 
+        const startSec = slot.start.toFixed(1);
         const endSec = slot.end.toFixed(1);
         const opacityClass = slot.finished ? "" : "text-muted opacity-50";
         const realBadgeClass = slot.finished ? "bg-primary" : "bg-secondary";
-        
-        const expectedBadge = slot.expected !== "-" 
-            ? `<span class="badge bg-dark border border-light">${slot.expected}</span>` 
+
+        const expectedBadge = slot.expected !== "-"
+            ? `<span class="badge bg-dark border border-light">${slot.expected}</span>`
             : `<span class="text-muted">-</span>`;
 
         let coincidenciaHtml = `<span class="text-muted">-</span>`;
-        
+
         if (slot.finished && slot.expected !== "-") {
             const totalFrames = slot.emotions.length;
             if (totalFrames > 0) {
                 const expectedCount = slot.emotions.filter(e => e === slot.expected).length;
                 const matchPct = ((expectedCount / totalFrames) * 100).toFixed(0);
-                
-                let badgeColor = "bg-danger"; 
+
+                let badgeColor = "bg-danger";
                 if (matchPct >= 60) badgeColor = "bg-success";
                 else if (matchPct >= 30) badgeColor = "bg-warning text-dark";
 

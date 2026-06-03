@@ -135,11 +135,26 @@ async def guardar_correccion(request: CorreccionRequest):
             embedding=embedding,
             segundo_inicio=request.segundo_inicio,
             segundo_fin=request.segundo_fin,
-            emocion_corregida=request.emocion_corregida
+            emocion_corregida=request.emocion_corregida,
+            id_tracking=request.id_tracking
         )
         return {"status": "ok", "id_correccion": nuevo_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error guardando la corrección: {str(e)}")
+
+
+# borra una corrección concreta por su id
+@app.delete("/correcciones/{id_correccion}")
+async def eliminar_correccion(id_correccion: int):
+    try:
+        borrado = database.borrar_correccion(id_correccion)
+        if not borrado:
+            raise HTTPException(status_code=404, detail="Corrección no encontrada")
+        return {"status": "ok", "id_correccion": id_correccion}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error borrando la corrección: {str(e)}")
 
 
 if __name__ == "__main__":

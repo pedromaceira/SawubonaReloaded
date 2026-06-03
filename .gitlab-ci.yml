@@ -62,6 +62,7 @@ deploy_server:
     
     - source activate sawubona_env
     - export PYTHONPATH=\$STORE/librerias_gpu:\$PYTHONPATH
+    - export SAWUBONA_DB_PATH=\$STORE/sawubona_data/correcciones.db
     - cd ~/usc-sawubonareloaded
     - echo "Forzando sincronización exacta con GitLab..."
     - git fetch origin main

@@ -197,6 +197,49 @@
                         </div>
                     </div>
                 </div>
+
+                <div class="card shadow-sm mt-3 card-analytics" id="panelCorreccion" style="border-top-color: #fd7e14; display: none;">
+                    <div class="card-header bg-white py-2">
+                        <h6 class="mb-0 fw-bold" style="color: #fd7e14;">Corregir emoción detectada</h6>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-2">Pausa el vídeo (o espera a que termine) en el tramo que quieras corregir, marca el inicio y el fin, elige la cara y la emoción correcta.</p>
+                        <div class="row g-2 mb-2">
+                            <div class="col-6 d-grid"><button id="btnMarcarInicio" class="btn btn-sm btn-outline-secondary">Marcar inicio</button></div>
+                            <div class="col-6 d-grid"><button id="btnMarcarFin" class="btn btn-sm btn-outline-secondary">Marcar fin</button></div>
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-6"><label class="form-label small text-muted mb-1">Inicio (s)</label><input type="number" id="correccionInicio" class="form-control form-control-sm" min="0" step="0.1"></div>
+                            <div class="col-6"><label class="form-label small text-muted mb-1">Fin (s)</label><input type="number" id="correccionFin" class="form-control form-control-sm" min="0" step="0.1"></div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small text-muted mb-1">Cara</label>
+                            <select id="correccionCara" class="form-select form-select-sm"></select>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small text-muted mb-1">Emoción correcta</label>
+                            <select id="correccionEmocion" class="form-select form-select-sm">
+                                <option value="Neutral">Neutral</option>
+                                <option value="Felicidad">Felicidad</option>
+                                <option value="Tristeza">Tristeza</option>
+                                <option value="Sorpresa">Sorpresa</option>
+                                <option value="Enfado">Enfado</option>
+                                <option value="Miedo">Miedo</option>
+                                <option value="Disgusto">Disgusto</option>
+                            </select>
+                        </div>
+                        <div class="d-grid">
+                            <button id="btnGuardarCorreccion" class="btn btn-sm btn-success">Guardar corrección</button>
+                        </div>
+                        <div id="correccionFeedback" class="small mt-2"></div>
+                        <hr class="my-2">
+                        <div class="small fw-bold text-muted mb-1">Correcciones de este vídeo</div>
+                        <div id="listaCorrecciones" class="px-1" style="max-height: 160px; overflow-y: auto;">
+                            <div class="text-muted small text-center py-2">Aún no hay correcciones guardadas para este vídeo</div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </div>
     </div>
@@ -281,6 +324,24 @@
                 <div class="modal-footer">
                     <button type="button" id="btnAnalizarDesdeCero" class="btn btn-outline-secondary">Analizar desde cero</button>
                     <button type="button" id="btnAplicarCorrecciones" class="btn btn-success">Aplicar correcciones</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="borrarCorreccionModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title">Borrar corrección</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-0 small">¿Seguro que quieres borrar esta corrección? Esta acción no se puede deshacer.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" id="btnConfirmarBorrado" class="btn btn-danger btn-sm">Borrar</button>
                 </div>
             </div>
         </div>
