@@ -15,10 +15,9 @@ const slotsTable = document.getElementById('slotsTable');
 const facesGalleryGrid = document.getElementById('facesGalleryGrid');
 let avatarsPorCara = {};
 
-let hashVideoActual = null; 
-let nombreVideoActual = "";  
-let correccionesActivas = []; 
-let aplicarCorrecciones = false;
+let hashVideoActual = null;
+let nombreVideoActual = "";
+let sessionIdActual = null;
 
 const discardedTable = document.getElementById('discardedTable');
 const discardedCount = document.getElementById('discardedCount');
@@ -86,38 +85,105 @@ async function calcularHashVideo(file) {
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-const correccionesModalEl = document.getElementById('correccionesModal');
-const correccionesModal = correccionesModalEl ? new bootstrap.Modal(correccionesModalEl) : null;
-const correccionesCountSpan = document.getElementById('correccionesCount');
-const btnAplicarCorrecciones = document.getElementById('btnAplicarCorrecciones');
-const btnAnalizarDesdeCero = document.getElementById('btnAnalizarDesdeCero');
+const sesionesModalEl = document.getElementById('sesionesModal');
+const sesionesModal = sesionesModalEl ? new bootstrap.Modal(sesionesModalEl) : null;
+const listaSesiones = document.getElementById('listaSesiones');
+const sesionesIntro = document.getElementById('sesionesIntro');
+const btnNuevaSesion = document.getElementById('btnNuevaSesion');
+const btnCancelarSesion = document.getElementById('btnCancelarSesion');
+const nombreNuevaSesion = document.getElementById('nombreNuevaSesion');
 
-let resolverModalCorrecciones = null;
+async function abrirModalSesiones() {
+    if (!sesionesModal || !hashVideoActual) return;
+    let sesiones = [];
+    try {
+        const resp = await fetch(`http://127.0.0.1:8000/sesiones/listar/${hashVideoActual}`);
+        const datos = await resp.json();
+        sesiones = datos.sesiones || [];
+    } catch (err) {
+        console.warn("No se pudieron listar las sesiones:", err);
+    }
 
-function preguntarCorrecciones(total) {
-    return new Promise((resolve) => {
-        if (!correccionesModal) { resolve(false); return; }
-        correccionesCountSpan.innerText = total;
-        resolverModalCorrecciones = resolve;
-        correccionesModal.show();
+    if (sesiones.length === 0) {
+        sesionesIntro.innerText = "Este vídeo no tiene sesiones guardadas. Crea una nueva para empezar.";
+        listaSesiones.innerHTML = '<div class="text-muted small text-center py-2">No hay sesiones previas</div>';
+    } else {
+        sesionesIntro.innerText = "Este vídeo tiene sesiones guardadas. Continúa una o empieza de cero.";
+        listaSesiones.innerHTML = sesiones.map(s => `
+            <div class="d-flex align-items-center justify-content-between border rounded p-2 mb-2">
+                <div>
+                    <div class="fw-bold">${s.nombre_sesion}</div>
+                    <div class="small text-muted">Pausada en ${formatTime(s.segundo_actual)} · ${s.num_correcciones} corrección(es) · ${s.updated_at.slice(0,16).replace('T',' ')}</div>
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-primary btn-cargar-sesion" data-id="${s.id}">Cargar</button>
+                    <button class="btn btn-sm btn-outline-danger btn-borrar-sesion" data-id="${s.id}" title="Borrar sesión">🗑</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    if (nombreNuevaSesion) nombreNuevaSesion.value = "";
+    sesionesModal.show();
+}
+
+async function crearSesionNueva() {
+    try {
+        const nombre = nombreNuevaSesion && nombreNuevaSesion.value.trim() !== ""
+            ? nombreNuevaSesion.value.trim()
+            : null;
+        const resp = await fetch('http://127.0.0.1:8000/sesiones/crear', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                hash_video: hashVideoActual,
+                nombre_original: nombreVideoActual,
+                nombre_sesion: nombre
+            })
+        });
+        const datos = await resp.json();
+        sessionIdActual = datos.id;
+        console.log("Nueva sesión creada con id:", sessionIdActual);
+    } catch (err) {
+        console.error("No se pudo crear la sesión:", err);
+    }
+}
+
+if (btnNuevaSesion) {
+    btnNuevaSesion.addEventListener('click', async () => {
+        await crearSesionNueva();
+        sesionesModal.hide();
     });
 }
 
-if (btnAplicarCorrecciones) {
-    btnAplicarCorrecciones.addEventListener('click', () => {
-        if (resolverModalCorrecciones) { resolverModalCorrecciones(true); resolverModalCorrecciones = null; }
-        correccionesModal.hide();
+if (btnCancelarSesion) {
+    btnCancelarSesion.addEventListener('click', () => {
+        sessionIdActual = null;
+        sesionesModal.hide();
     });
 }
-if (btnAnalizarDesdeCero) {
-    btnAnalizarDesdeCero.addEventListener('click', () => {
-        if (resolverModalCorrecciones) { resolverModalCorrecciones(false); resolverModalCorrecciones = null; }
-        correccionesModal.hide();
-    });
-}
-if (correccionesModalEl) {
-    correccionesModalEl.addEventListener('hidden.bs.modal', () => {
-        if (resolverModalCorrecciones) { resolverModalCorrecciones(false); resolverModalCorrecciones = null; }
+
+if (listaSesiones) {
+    listaSesiones.addEventListener('click', async (e) => {
+        const cargar = e.target.closest('.btn-cargar-sesion');
+        const borrar = e.target.closest('.btn-borrar-sesion');
+
+        if (cargar) {
+            sessionIdActual = parseInt(cargar.dataset.id);
+            console.log("Sesión seleccionada para cargar:", sessionIdActual);
+            sesionesModal.hide();
+        }
+
+        if (borrar) {
+            const id = parseInt(borrar.dataset.id);
+            try {
+                await fetch(`http://127.0.0.1:8000/sesiones/${id}`, { method: 'DELETE' });
+                console.log("Sesión borrada:", id);
+                abrirModalSesiones();
+            } catch (err) {
+                console.error("No se pudo borrar la sesión:", err);
+            }
+        }
     });
 }
 
@@ -154,14 +220,14 @@ function actualizarEstadoPanelCorreccion() {
 }
 
 async function renderListaCorrecciones() {
-    if (!listaCorrecciones || !hashVideoActual) return;
+    if (!listaCorrecciones || !sessionIdActual) return;
     try {
-        const resp = await fetch(`http://127.0.0.1:8000/correcciones/${hashVideoActual}`);
+        const resp = await fetch(`http://127.0.0.1:8000/correcciones/sesion/${sessionIdActual}`);
         const datos = await resp.json();
         const items = datos.correcciones || [];
 
         if (items.length === 0) {
-            listaCorrecciones.innerHTML = '<div class="text-muted small text-center py-2">Aún no hay correcciones guardadas para este vídeo</div>';
+            listaCorrecciones.innerHTML = '<div class="text-muted small text-center py-2">Aún no hay correcciones guardadas para esta sesión</div>';
             return;
         }
 
@@ -197,12 +263,12 @@ if (btnConfirmarBorrado) {
             if (!resp.ok) throw new Error("Respuesta no OK del servidor");
             console.log(`Corrección ${idCorreccionABorrar} borrada.`);
 
-            if (hashVideoActual) {
+            if (sessionIdActual) {
                 try {
                     const r2 = await fetch('http://127.0.0.1:8000/correcciones/cargar', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ hash_video: hashVideoActual })
+                        body: JSON.stringify({ session_id: sessionIdActual })
                     });
                     const d2 = await r2.json();
                     console.log(`Correcciones recargadas en el servidor: ${d2.total}`);
@@ -233,9 +299,9 @@ if (btnGuardarCorreccion) {
         correccionFeedback.innerText = "";
         correccionFeedback.className = "small mt-2";
 
-        if (!hashVideoActual) {
+        if (!hashVideoActual || !sessionIdActual) {
             correccionFeedback.className = "small mt-2 text-danger";
-            correccionFeedback.innerText = "No hay vídeo cargado.";
+            correccionFeedback.innerText = "No hay sesión activa.";
             return;
         }
 
@@ -267,6 +333,7 @@ if (btnGuardarCorreccion) {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    session_id: sessionIdActual,
                     hash_video: hashVideoActual,
                     nombre_original: nombreVideoActual,
                     duracion: video.duration || 0.0,
@@ -290,10 +357,9 @@ if (btnGuardarCorreccion) {
                 const r2 = await fetch('http://127.0.0.1:8000/correcciones/cargar', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ hash_video: hashVideoActual })
+                    body: JSON.stringify({ session_id: sessionIdActual })
                 });
                 const d2 = await r2.json();
-                aplicarCorrecciones = true;
                 console.log(`Correcciones recargadas en el servidor: ${d2.total}`);
             } catch (e) {
                 console.warn("No se pudieron recargar las correcciones en el servidor.", e);
@@ -469,14 +535,13 @@ videoInput.onchange = async (e) => {
 
         hashVideoActual = null;
         nombreVideoActual = file.name;
-        correccionesActivas = [];
-        aplicarCorrecciones = false;
+        sessionIdActual = null;
 
         if (panelCorreccion) panelCorreccion.style.display = "none";
         if (correccionInicio) correccionInicio.value = "";
         if (correccionFin) correccionFin.value = "";
         if (correccionFeedback) correccionFeedback.innerText = "";
-        if (listaCorrecciones) listaCorrecciones.innerHTML = '<div class="text-muted small text-center py-2">Aún no hay correcciones guardadas para este vídeo</div>';
+        if (listaCorrecciones) listaCorrecciones.innerHTML = '<div class="text-muted small text-center py-2">Aún no hay correcciones guardadas para esta sesión</div>';
 
         if (facesGalleryGrid) {
             facesGalleryGrid.innerHTML = '<div class="col-12 text-center text-muted py-3">Aún no se han detectado caras</div>';
@@ -519,27 +584,9 @@ videoInput.onchange = async (e) => {
         try {
             hashVideoActual = await calcularHashVideo(file);
             console.log("Hash del vídeo:", hashVideoActual);
-
-            const resp = await fetch(`http://127.0.0.1:8000/correcciones/${hashVideoActual}`);
-            const datos = await resp.json();
-
-            if (datos.existe) {
-                const aplicar = await preguntarCorrecciones(datos.total);
-
-                if (aplicar) {
-                    aplicarCorrecciones = true;
-                    correccionesActivas = datos.correcciones;
-                    console.log(`Se aplicarán ${correccionesActivas.length} correcciones.`);
-                } else {
-                    aplicarCorrecciones = false;
-                    correccionesActivas = [];
-                    console.log("El usuario eligió analizar desde cero.");
-                }
-            } else {
-                console.log("Este vídeo no tiene correcciones previas.");
-            }
+            await abrirModalSesiones();
         } catch (err) {
-            console.warn("No se pudo consultar correcciones previas:", err);
+            console.warn("No se pudo preparar la sesión:", err);
         }
     }
 };
@@ -659,20 +706,6 @@ btnComenzarReal.onclick = async () => {
             console.log("Memoria biométrica del servidor formateada.");
         } catch (error) {
             console.error("No se pudo contactar con /reset en el servidor.", error);
-        }
-
-        if (aplicarCorrecciones && hashVideoActual) {
-            try {
-                const resp = await fetch('http://127.0.0.1:8000/correcciones/cargar', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ hash_video: hashVideoActual })
-                });
-                const data = await resp.json();
-                console.log(`Correcciones cargadas en el servidor: ${data.total}`);
-            } catch (error) {
-                console.error("No se pudieron cargar las correcciones en el servidor.", error);
-            }
         }
 
         video.currentTime = 0;

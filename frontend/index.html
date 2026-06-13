@@ -310,25 +310,6 @@
         </div>
     </div>
 
-    <div class="modal fade" id="correccionesModal" tabindex="-1" aria-labelledby="correccionesModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-header bg-primary text-white">
-                    <h5 class="modal-title" id="correccionesModalLabel">Correcciones encontradas</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <p class="mb-1">Este vídeo ya tiene <strong><span id="correccionesCount">0</span></strong> corrección(es) guardada(s) de un análisis anterior.</p>
-                    <p class="text-muted small mb-0">¿Quieres tenerlas en cuenta o prefieres analizar el vídeo desde cero?</p>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" id="btnAnalizarDesdeCero" class="btn btn-outline-secondary">Analizar desde cero</button>
-                    <button type="button" id="btnAplicarCorrecciones" class="btn btn-success">Aplicar correcciones</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <div class="modal fade" id="borrarCorreccionModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered modal-sm">
             <div class="modal-content">
@@ -342,6 +323,27 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
                     <button type="button" id="btnConfirmarBorrado" class="btn btn-danger btn-sm">Borrar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="sesionesModal" tabindex="-1" aria-labelledby="sesionesModalLabel" aria-hidden="true" data-bs-backdrop="static">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title" id="sesionesModalLabel">Sesiones de trabajo</h5>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-2" id="sesionesIntro">Este vídeo tiene sesiones guardadas. Puedes continuar una o empezar de cero.</p>
+                    <div id="listaSesiones" class="mb-3" style="max-height: 280px; overflow-y: auto;"></div>
+                </div>
+                <div class="modal-footer d-flex justify-content-between align-items-center">
+                    <button type="button" id="btnCancelarSesion" class="btn btn-outline-secondary">Cancelar</button>
+                    <div class="d-flex gap-2 align-items-center">
+                        <input type="text" id="nombreNuevaSesion" class="form-control form-control-sm" placeholder="Nombre (opcional)" style="width: 200px;">
+                        <button type="button" id="btnNuevaSesion" class="btn btn-success">Nueva sesión</button>
+                    </div>
                 </div>
             </div>
         </div>

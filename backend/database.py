@@ -118,10 +118,7 @@ def registrar_video(hash_video, nombre_original, duracion):
         )
 
 def crear_sesion(hash_video, nombre_original="", nombre_sesion=None):
-    """Crea una sesión nueva (snapshot vacío) y devuelve su id."""
     ahora = datetime.now().isoformat()
-    if not nombre_sesion:
-        nombre_sesion = "Sesión " + datetime.now().strftime("%d/%m/%Y %H:%M")
     with get_conexion() as conn:
         cursor = conn.execute(
             """
@@ -130,7 +127,13 @@ def crear_sesion(hash_video, nombre_original="", nombre_sesion=None):
             """,
             (hash_video, nombre_original, nombre_sesion, ahora, ahora)
         )
-        return cursor.lastrowid
+        nuevo_id = cursor.lastrowid
+        if not nombre_sesion:
+            conn.execute(
+                "UPDATE sesiones SET nombre_sesion = ? WHERE id = ?",
+                (f"Sesión {nuevo_id}", nuevo_id)
+            )
+        return nuevo_id
 
 
 def listar_sesiones(hash_video):
