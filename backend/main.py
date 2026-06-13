@@ -10,21 +10,38 @@ import database
 class ImageRequest(BaseModel):
     image_base64: str
     is_screen_share: bool = False
-    tiempo_actual: Optional[float] = None   # segundo del reproductor (solo vista de vídeo)
+    tiempo_actual: Optional[float] = None
 
 
-class CorreccionRequest(BaseModel):
+class CrearSesionRequest(BaseModel):
     hash_video: str
     nombre_original: str = ""
-    duracion: float = 0.0
-    id_tracking: int               # ID de la cara en la sesión actual
-    segundo_inicio: float
-    segundo_fin: float
-    emocion_corregida: str
+    nombre_sesion: Optional[str] = None
+
+
+class GuardarSesionRequest(BaseModel):
+    session_id: int
+    segundo_actual: float
+    snapshot_display: dict
+
+
+class ActivarSesionRequest(BaseModel):
+    session_id: int
 
 
 class CargarCorreccionesRequest(BaseModel):
+    session_id: int
+
+
+class CorreccionRequest(BaseModel):
+    session_id: int
     hash_video: str
+    nombre_original: str = ""
+    duracion: float = 0.0
+    id_tracking: int
+    segundo_inicio: float
+    segundo_fin: float
+    emocion_corregida: str
 
 
 app = FastAPI(title="Sawubona Reloaded API")
@@ -37,7 +54,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# carga de modelos (una sola vez)
 try:
     detector = EmotionDetector(
         yolo_path="modelos/yolo11n-face.pt",
@@ -47,11 +63,14 @@ except Exception as e:
     print(f"Error al cargar los modelos: {e}")
     detector = None
 
-# inicialización de la base de datos de correcciones
 try:
     database.inicializar_db()
 except Exception as e:
-    print(f"Error al inicializar la base de datos de correcciones: {e}")
+    print(f"Error al inicializar la base de datos: {e}")
+
+
+def _correccion_ligera(c):
+    return {k: v for k, v in c.items() if k != "embedding"}
 
 
 @app.get("/")
@@ -74,7 +93,6 @@ async def reset_memory():
 async def analizar_emociones(request: ImageRequest):
     if detector is None:
         raise HTTPException(status_code=500, detail="Modelos no cargados en el servidor")
-
     try:
         from utils import base64_to_cv2
         frame = base64_to_cv2(request.image_base64)
@@ -88,34 +106,89 @@ async def analizar_emociones(request: ImageRequest):
         raise HTTPException(status_code=400, detail=f"Error procesando la imagen: {str(e)}")
 
 
-# consulta si un vídeo ya tiene correcciones guardadas
-@app.get("/correcciones/{hash_video}")
-async def consultar_correcciones(hash_video: str):
+@app.post("/sesiones/crear")
+async def crear_sesion(request: CrearSesionRequest):
     try:
-        correcciones = database.obtener_correcciones(hash_video)
+        database.registrar_video(request.hash_video, request.nombre_original, 0.0)
+        sid = database.crear_sesion(request.hash_video, request.nombre_original, request.nombre_sesion)
+        return {"status": "ok", "id": sid}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creando la sesión: {str(e)}")
+
+
+@app.get("/sesiones/listar/{hash_video}")
+async def listar_sesiones(hash_video: str):
+    try:
+        return {"sesiones": database.listar_sesiones(hash_video)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error listando sesiones: {str(e)}")
+
+
+@app.post("/sesiones/guardar")
+async def guardar_sesion(request: GuardarSesionRequest):
+    if detector is None:
+        raise HTTPException(status_code=500, detail="Modelos no cargados en el servidor")
+    try:
+        memoria = detector.exportar_memoria()
+        snapshot = {"display": request.snapshot_display, "backend": memoria}
+        database.guardar_estado_sesion(request.session_id, request.segundo_actual, snapshot)
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error guardando la sesión: {str(e)}")
+
+
+@app.post("/sesiones/activar")
+async def activar_sesion(request: ActivarSesionRequest):
+    if detector is None:
+        raise HTTPException(status_code=500, detail="Modelos no cargados en el servidor")
+    ses = database.obtener_sesion(request.session_id)
+    if ses is None:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+    try:
+        detector.reset_memory()
+        snapshot = ses["snapshot"] if isinstance(ses["snapshot"], dict) else {}
+        memoria = snapshot.get("backend")
+        if memoria:
+            detector.importar_memoria(memoria)
+
+        correcciones = database.obtener_correcciones_sesion(request.session_id)
+        detector.cargar_correcciones(correcciones)
+
         return {
-            "existe": len(correcciones) > 0,
-            "total": len(correcciones),
-            "correcciones": correcciones
+            "status": "ok",
+            "segundo_actual": ses["segundo_actual"],
+            "snapshot_display": snapshot.get("display"),
+            "correcciones": [_correccion_ligera(c) for c in correcciones]
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error consultando correcciones: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error activando la sesión: {str(e)}")
 
 
-# carga en memoria del servidor las correcciones de un vídeo (al comenzar el análisis)
+@app.delete("/sesiones/{session_id}")
+async def eliminar_sesion(session_id: int):
+    try:
+        borrado = database.borrar_sesion(session_id)
+        if not borrado:
+            raise HTTPException(status_code=404, detail="Sesión no encontrada")
+        return {"status": "ok", "session_id": session_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error borrando la sesión: {str(e)}")
+
+
 @app.post("/correcciones/cargar")
 async def cargar_correcciones(request: CargarCorreccionesRequest):
     if detector is None:
         raise HTTPException(status_code=500, detail="Modelos no cargados en el servidor")
     try:
-        correcciones = database.obtener_correcciones(request.hash_video)
+        correcciones = database.obtener_correcciones_sesion(request.session_id)
         total = detector.cargar_correcciones(correcciones)
         return {"status": "ok", "total": total}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error cargando correcciones: {str(e)}")
 
 
-# guarda una corrección manual (traduce id_tracking de la sesión a su embedding)
 @app.post("/correcciones/guardar")
 async def guardar_correccion(request: CorreccionRequest):
     if detector is None:
@@ -131,6 +204,7 @@ async def guardar_correccion(request: CorreccionRequest):
     try:
         database.registrar_video(request.hash_video, request.nombre_original, request.duracion)
         nuevo_id = database.guardar_correccion(
+            session_id=request.session_id,
             hash_video=request.hash_video,
             embedding=embedding,
             segundo_inicio=request.segundo_inicio,
@@ -143,7 +217,16 @@ async def guardar_correccion(request: CorreccionRequest):
         raise HTTPException(status_code=500, detail=f"Error guardando la corrección: {str(e)}")
 
 
-# borra una corrección concreta por su id
+@app.get("/correcciones/sesion/{session_id}")
+async def listar_correcciones_sesion(session_id: int):
+    try:
+        correcciones = database.obtener_correcciones_sesion(session_id)
+        ligeras = [_correccion_ligera(c) for c in correcciones]
+        return {"total": len(ligeras), "correcciones": ligeras}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error consultando correcciones: {str(e)}")
+
+
 @app.delete("/correcciones/{id_correccion}")
 async def eliminar_correccion(id_correccion: int):
     try:

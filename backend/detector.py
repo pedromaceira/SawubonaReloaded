@@ -142,6 +142,22 @@ class EmotionDetector:
             })
         return len(self.correcciones_activas)
 
+    def exportar_memoria(self):
+        faces = []
+        for face_id, emb in self.known_faces:
+            faces.append({
+                "id": face_id,
+                "embedding": emb.detach().cpu().numpy().flatten().tolist()
+            })
+        return {"known_faces": faces, "next_id": self.next_id}
+
+    def importar_memoria(self, memoria):
+        self.known_faces = []
+        for f in memoria.get("known_faces", []):
+            emb = torch.tensor(f["embedding"], dtype=torch.float32, device=self.device).unsqueeze(0)
+            self.known_faces.append((f["id"], emb))
+        self.next_id = memoria.get("next_id", len(self.known_faces) + 1)
+
     def aplicar_correccion(self, person_id, tiempo_actual):
         # devuelve la emoción corregida si la cara coincide (por embedding) con una
         # corrección cuyo rango temporal contiene el segundo actual; None si no aplica
