@@ -6,6 +6,7 @@ const btnConfigurar = document.getElementById('btnConfigurar');
 const btnPausar = document.getElementById('btnPausar');
 const btnComenzarReal = document.getElementById('btnComenzarReal');
 const btnExportarPDF = document.getElementById('btnExportarPDF');
+const btnGuardarSesion = document.getElementById('btnGuardarSesion');
 
 const globalAnalyticsTable = document.getElementById('globalAnalyticsTable');
 const overallSentimentText = document.getElementById('overallSentiment');
@@ -149,9 +150,155 @@ async function crearSesionNueva() {
     }
 }
 
+function actualizarBotonGuardarSesion() {
+    if (!btnGuardarSesion) return;
+    btnGuardarSesion.disabled = !(sessionIdActual && !isAnalyzing);
+}
+
+async function guardarSesionActual() {
+    if (!sessionIdActual) return;
+    const snapshot = {
+        sessionData: sessionData,
+        slotsData: slotsData,
+        avatarsPorCara: avatarsPorCara,
+        carasFiltradas: carasFiltradas
+    };
+    const textoOriginal = btnGuardarSesion ? btnGuardarSesion.innerHTML : "";
+    try {
+        const resp = await fetch('http://127.0.0.1:8000/sesiones/guardar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                session_id: sessionIdActual,
+                segundo_actual: video.currentTime,
+                snapshot_display: snapshot
+            })
+        });
+        if (!resp.ok) throw new Error("Respuesta no OK del servidor");
+        console.log(`Sesión ${sessionIdActual} guardada en el segundo ${video.currentTime.toFixed(1)}.`);
+        if (btnGuardarSesion) {
+            btnGuardarSesion.className = "btn btn-success";
+            btnGuardarSesion.innerHTML = "Sesión guardada ✓";
+            setTimeout(() => {
+                btnGuardarSesion.className = "btn btn-outline-success";
+                btnGuardarSesion.innerHTML = textoOriginal;
+                actualizarBotonGuardarSesion();
+            }, 1800);
+        }
+    } catch (err) {
+        console.error("Error guardando la sesión:", err);
+        if (btnGuardarSesion) {
+            btnGuardarSesion.className = "btn btn-danger";
+            btnGuardarSesion.innerHTML = "Error al guardar";
+            setTimeout(() => {
+                btnGuardarSesion.className = "btn btn-outline-success";
+                btnGuardarSesion.innerHTML = textoOriginal;
+                actualizarBotonGuardarSesion();
+            }, 1800);
+        }
+    }
+}
+
+if (btnGuardarSesion) {
+    btnGuardarSesion.addEventListener('click', guardarSesionActual);
+}
+
+function renderizarDescartes() {
+    if (!discardedTable || !discardedCount) return;
+    const ids = Object.keys(carasFiltradas);
+    discardedCount.innerText = `${ids.length} descartes`;
+    if (ids.length === 0) {
+        discardedTable.innerHTML = '<tr><td colspan="2" class="text-center text-muted py-2">No se ha filtrado ruido aún</td></tr>';
+        return;
+    }
+    discardedTable.innerHTML = "";
+    ids.forEach(idCara => {
+        const info = carasFiltradas[idCara];
+        const frames = (info && info.frames !== undefined) ? info.frames : '—';
+        discardedTable.innerHTML += `<tr>
+            <td class="fw-bold text-danger">${idCara}</td>
+            <td class="small text-muted">Eliminada por ruido (${frames} frames de aparición)</td>
+        </tr>`;
+    });
+}
+
+async function cargarSesion(id) {
+    sessionIdActual = id;
+    let datos;
+    try {
+        const resp = await fetch('http://127.0.0.1:8000/sesiones/activar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: id })
+        });
+        if (!resp.ok) throw new Error("Respuesta no OK del servidor");
+        datos = await resp.json();
+    } catch (err) {
+        console.error("No se pudo activar la sesión:", err);
+        return;
+    }
+
+    const snap = datos.snapshot_display || {};
+    sessionData = snap.sessionData || {};
+    slotsData = snap.slotsData || [];
+    avatarsPorCara = snap.avatarsPorCara || {};
+    carasFiltradas = snap.carasFiltradas || {};
+
+    if (faceFilter) {
+        faceFilter.innerHTML = '<option value="global">Global (Todas las caras)</option>';
+        Object.keys(sessionData).forEach(idCara => {
+            const opt = document.createElement('option');
+            opt.value = idCara;
+            opt.innerText = idCara;
+            faceFilter.appendChild(opt);
+        });
+    }
+
+    if (chartGlobalInstance) {
+        chartGlobalInstance.destroy();
+        chartGlobalInstance = null;
+    }
+
+    renderizarAnaliticaGlobal({});
+    renderizarGaleriaCaras();
+    renderizarDescartes();
+    if (slotsData.length > 0) renderizarTablaSlots();
+
+    const haySnapshot = slotsData.length > 0;
+    isAnalyzing = false;
+    enviando = false;
+
+    if (haySnapshot) {
+        const segundo = datos.segundo_actual || 0;
+        const colocar = () => {
+            try { video.currentTime = segundo; } catch (e) {}
+            currentTimeDisplay.innerText = formatTime(segundo);
+            if (video.duration) videoProgressBar.style.width = `${(segundo / video.duration) * 100}%`;
+        };
+        if (video.readyState >= 1) colocar();
+        else video.addEventListener('loadedmetadata', colocar, { once: true });
+
+        btnConfigurar.classList.add('d-none');
+        btnPausar.className = "btn btn-success";
+        btnPausar.innerHTML = "Reanudar";
+        btnExportarPDF.classList.add('d-none');
+        console.log(`Sesión ${id} cargada. Reanuda para continuar desde el segundo ${segundo.toFixed(1)}.`);
+    } else {
+        btnConfigurar.classList.remove('d-none');
+        btnConfigurar.disabled = false;
+        btnPausar.className = "btn btn-warning d-none";
+        console.log(`Sesión ${id} cargada (sin análisis previo). Configura el análisis para empezar.`);
+    }
+
+    actualizarBotonGuardarSesion();
+    actualizarEstadoPanelCorreccion();
+    renderListaCorrecciones();
+}
+
 if (btnNuevaSesion) {
     btnNuevaSesion.addEventListener('click', async () => {
         await crearSesionNueva();
+        actualizarBotonGuardarSesion();
         sesionesModal.hide();
     });
 }
@@ -159,6 +306,7 @@ if (btnNuevaSesion) {
 if (btnCancelarSesion) {
     btnCancelarSesion.addEventListener('click', () => {
         sessionIdActual = null;
+        actualizarBotonGuardarSesion();
         sesionesModal.hide();
     });
 }
@@ -169,9 +317,9 @@ if (listaSesiones) {
         const borrar = e.target.closest('.btn-borrar-sesion');
 
         if (cargar) {
-            sessionIdActual = parseInt(cargar.dataset.id);
-            console.log("Sesión seleccionada para cargar:", sessionIdActual);
+            const idSesion = parseInt(cargar.dataset.id);
             sesionesModal.hide();
+            await cargarSesion(idSesion);
         }
 
         if (borrar) {
@@ -389,6 +537,7 @@ video.addEventListener('play', () => {
         btnPausar.className = "btn btn-warning";
         btnPausar.innerHTML = "Pausar";
         if (panelCorreccion) panelCorreccion.style.display = "none";
+        actualizarBotonGuardarSesion();
         procesarFrame();
     }
 });
@@ -399,6 +548,7 @@ video.addEventListener('pause', () => {
         btnPausar.className = "btn btn-success";
         btnPausar.innerHTML = "Reanudar";
         actualizarEstadoPanelCorreccion();
+        actualizarBotonGuardarSesion();
     }
 });
 
@@ -536,6 +686,7 @@ videoInput.onchange = async (e) => {
         hashVideoActual = null;
         nombreVideoActual = file.name;
         sessionIdActual = null;
+        actualizarBotonGuardarSesion();
 
         if (panelCorreccion) panelCorreccion.style.display = "none";
         if (correccionInicio) correccionInicio.value = "";
@@ -708,9 +859,24 @@ btnComenzarReal.onclick = async () => {
             console.error("No se pudo contactar con /reset en el servidor.", error);
         }
 
+        if (sessionIdActual) {
+            try {
+                const respCorr = await fetch('http://127.0.0.1:8000/correcciones/cargar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: sessionIdActual })
+                });
+                const dataCorr = await respCorr.json();
+                console.log(`Correcciones de la sesión cargadas: ${dataCorr.total}`);
+            } catch (error) {
+                console.error("No se pudieron cargar las correcciones de la sesión.", error);
+            }
+        }
+
         video.currentTime = 0;
         video.play();
         isAnalyzing = true;
+        actualizarBotonGuardarSesion();
         procesarFrame();
     }
 };
@@ -722,12 +888,14 @@ btnPausar.onclick = () => {
         btnPausar.innerHTML = "Reanudar";
         btnPausar.className = "btn btn-success";
         actualizarEstadoPanelCorreccion();
+        actualizarBotonGuardarSesion();
     } else {
         video.play();
         isAnalyzing = true;
         btnPausar.innerHTML = "Pausar";
         btnPausar.className = "btn btn-warning";
         if (panelCorreccion) panelCorreccion.style.display = "none";
+        actualizarBotonGuardarSesion();
         procesarFrame();
     }
 };
@@ -806,6 +974,7 @@ video.onended = () => {
     ejecutarFiltroDeRuido();
 
     actualizarEstadoPanelCorreccion();
+    actualizarBotonGuardarSesion();
 
     const fechaActual = new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
     document.getElementById('pdfDate').innerText = `Fecha: ${fechaActual}`;
