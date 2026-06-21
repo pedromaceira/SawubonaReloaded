@@ -50,7 +50,6 @@ class EmotionDetector:
         self.face_avatars = {}
         self.face_avatars_metrics = {}
 
-        # correcciones manuales activas para el vídeo en curso (se cargan al comenzar)
         self.correcciones_activas = []
 
         self.config_microservicios = self.cargar_configuracion()
@@ -123,19 +122,18 @@ class EmotionDetector:
             return self.next_id - 1
 
     def obtener_embedding_por_id(self, person_id):
-        # traduce un id de tracking de la sesión actual a su embedding biométrico
         for face_id, known_emb in self.known_faces:
             if face_id == person_id:
                 return known_emb
         return None
 
     def cargar_correcciones(self, lista_correcciones):
-        # convierte las correcciones de la BD (embedding como lista) en tensores listos para comparar
         self.correcciones_activas = []
         for c in lista_correcciones:
             emb = torch.tensor(c["embedding"], dtype=torch.float32, device=self.device).unsqueeze(0)
             self.correcciones_activas.append({
                 "embedding": emb,
+                "id_tracking": c.get("id_tracking"),
                 "inicio": c["segundo_inicio"],
                 "fin": c["segundo_fin"],
                 "emocion": c["emocion_corregida"]
@@ -159,8 +157,6 @@ class EmotionDetector:
         self.next_id = memoria.get("next_id", len(self.known_faces) + 1)
 
     def aplicar_correccion(self, person_id, tiempo_actual):
-        # devuelve la emoción corregida si la cara coincide (por embedding) con una
-        # corrección cuyo rango temporal contiene el segundo actual; None si no aplica
         if not self.correcciones_activas:
             return None
 
@@ -174,6 +170,49 @@ class EmotionDetector:
                 if dist < self.match_threshold:
                     return corr["emocion"]
         return None
+
+    def agregar_correccion_memoria(self, id_tracking, segundo_inicio, segundo_fin, emocion):
+        emb = self.obtener_embedding_por_id(id_tracking)
+        if emb is None:
+            return None
+        self.correcciones_activas.append({
+            "embedding": emb,
+            "id_tracking": id_tracking,
+            "inicio": segundo_inicio,
+            "fin": segundo_fin,
+            "emocion": emocion
+        })
+        return len(self.correcciones_activas) - 1
+
+    def eliminar_correccion_memoria(self, indice):
+        if 0 <= indice < len(self.correcciones_activas):
+            del self.correcciones_activas[indice]
+            return True
+        return False
+
+    def listar_correcciones_memoria(self):
+        salida = []
+        for i, c in enumerate(self.correcciones_activas):
+            salida.append({
+                "indice": i,
+                "id_tracking": c.get("id_tracking"),
+                "segundo_inicio": c["inicio"],
+                "segundo_fin": c["fin"],
+                "emocion_corregida": c["emocion"]
+            })
+        return salida
+
+    def exportar_correcciones_memoria(self):
+        salida = []
+        for c in self.correcciones_activas:
+            salida.append({
+                "embedding": c["embedding"].detach().cpu().numpy().flatten().tolist(),
+                "id_tracking": c.get("id_tracking"),
+                "segundo_inicio": c["inicio"],
+                "segundo_fin": c["fin"],
+                "emocion_corregida": c["emocion"]
+            })
+        return salida
 
     def consultar_microservicio(self, url, face_crop, is_screen_share):
         if not url:

@@ -370,12 +370,12 @@ function actualizarEstadoPanelCorreccion() {
 async function renderListaCorrecciones() {
     if (!listaCorrecciones || !sessionIdActual) return;
     try {
-        const resp = await fetch(`http://127.0.0.1:8000/correcciones/sesion/${sessionIdActual}`);
+        const resp = await fetch(`http://127.0.0.1:8000/correcciones/activas`);
         const datos = await resp.json();
         const items = datos.correcciones || [];
 
         if (items.length === 0) {
-            listaCorrecciones.innerHTML = '<div class="text-muted small text-center py-2">Aún no hay correcciones guardadas para esta sesión</div>';
+            listaCorrecciones.innerHTML = '<div class="text-muted small text-center py-2">Aún no hay correcciones en esta sesión</div>';
             return;
         }
 
@@ -386,7 +386,7 @@ async function renderListaCorrecciones() {
                 <span class="small fw-bold text-nowrap" style="color:#fd7e14;">${c.segundo_inicio.toFixed(1)}s – ${c.segundo_fin.toFixed(1)}s</span>
                 <span class="small text-muted mx-2 text-nowrap">${cara}</span>
                 <span class="badge ${colorClase}">${c.emocion_corregida}</span>
-                <button class="btn btn-sm btn-link text-danger p-0 ms-2 btn-borrar-correccion" data-id="${c.id}" title="Borrar corrección">🗑</button>
+                <button class="btn btn-sm btn-link text-danger p-0 ms-2 btn-borrar-correccion" data-indice="${c.indice}" title="Borrar corrección">🗑</button>
             </div>`;
         }).join('');
     } catch (err) {
@@ -398,7 +398,7 @@ if (listaCorrecciones) {
     listaCorrecciones.addEventListener('click', (e) => {
         const btn = e.target.closest('.btn-borrar-correccion');
         if (!btn) return;
-        idCorreccionABorrar = parseInt(btn.dataset.id);
+        idCorreccionABorrar = parseInt(btn.dataset.indice);
         if (borrarModal) borrarModal.show();
     });
 }
@@ -407,24 +407,9 @@ if (btnConfirmarBorrado) {
     btnConfirmarBorrado.addEventListener('click', async () => {
         if (idCorreccionABorrar === null) return;
         try {
-            const resp = await fetch(`http://127.0.0.1:8000/correcciones/${idCorreccionABorrar}`, { method: 'DELETE' });
+            const resp = await fetch(`http://127.0.0.1:8000/correcciones/memoria/${idCorreccionABorrar}`, { method: 'DELETE' });
             if (!resp.ok) throw new Error("Respuesta no OK del servidor");
-            console.log(`Corrección ${idCorreccionABorrar} borrada.`);
-
-            if (sessionIdActual) {
-                try {
-                    const r2 = await fetch('http://127.0.0.1:8000/correcciones/cargar', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ session_id: sessionIdActual })
-                    });
-                    const d2 = await r2.json();
-                    console.log(`Correcciones recargadas en el servidor: ${d2.total}`);
-                } catch (e) {
-                    console.warn("No se pudieron recargar las correcciones tras borrar.", e);
-                }
-            }
-
+            console.log(`Corrección (índice ${idCorreccionABorrar}) eliminada de la sesión.`);
             renderListaCorrecciones();
         } catch (err) {
             console.error("Error borrando la corrección:", err);
@@ -499,27 +484,15 @@ if (btnGuardarCorreccion) {
             }
             if (!resp.ok) throw new Error("Respuesta no OK del servidor");
 
-            const data = await resp.json();
-
-            try {
-                const r2 = await fetch('http://127.0.0.1:8000/correcciones/cargar', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ session_id: sessionIdActual })
-                });
-                const d2 = await r2.json();
-                console.log(`Correcciones recargadas en el servidor: ${d2.total}`);
-            } catch (e) {
-                console.warn("No se pudieron recargar las correcciones en el servidor.", e);
-            }
+            await resp.json();
 
             correccionFeedback.className = "small mt-2 text-success";
-            correccionFeedback.innerText = `Corrección guardada (#${data.id_correccion}). Para que afecte a todas las métricas, vuelve a analizar el vídeo.`;
+            correccionFeedback.innerText = "Corrección añadida. Se aplicará al continuar el análisis y se guardará al pulsar \u201cGuardar sesión\u201d.";
             renderListaCorrecciones();
         } catch (err) {
-            console.error("Error guardando la corrección:", err);
+            console.error("Error añadiendo la corrección:", err);
             correccionFeedback.className = "small mt-2 text-danger";
-            correccionFeedback.innerText = "Error guardando la corrección. Revisa la consola.";
+            correccionFeedback.innerText = "Error añadiendo la corrección. Revisa la consola.";
         }
     });
 }

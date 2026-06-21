@@ -132,6 +132,12 @@ async def guardar_sesion(request: GuardarSesionRequest):
         memoria = detector.exportar_memoria()
         snapshot = {"display": request.snapshot_display, "backend": memoria}
         database.guardar_estado_sesion(request.session_id, request.segundo_actual, snapshot)
+
+        ses = database.obtener_sesion(request.session_id)
+        hash_video = ses["hash_video"] if ses else ""
+        database.reemplazar_correcciones_sesion(
+            request.session_id, hash_video, detector.exportar_correcciones_memoria()
+        )
         return {"status": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error guardando la sesión: {str(e)}")
@@ -194,27 +200,35 @@ async def guardar_correccion(request: CorreccionRequest):
     if detector is None:
         raise HTTPException(status_code=500, detail="Modelos no cargados en el servidor")
 
-    embedding = detector.obtener_embedding_por_id(request.id_tracking)
-    if embedding is None:
+    indice = detector.agregar_correccion_memoria(
+        id_tracking=request.id_tracking,
+        segundo_inicio=request.segundo_inicio,
+        segundo_fin=request.segundo_fin,
+        emocion=request.emocion_corregida
+    )
+    if indice is None:
         raise HTTPException(
             status_code=404,
             detail=f"No se encontró la cara con id {request.id_tracking} en la sesión actual"
         )
+    return {"status": "ok", "indice": indice}
 
-    try:
-        database.registrar_video(request.hash_video, request.nombre_original, request.duracion)
-        nuevo_id = database.guardar_correccion(
-            session_id=request.session_id,
-            hash_video=request.hash_video,
-            embedding=embedding,
-            segundo_inicio=request.segundo_inicio,
-            segundo_fin=request.segundo_fin,
-            emocion_corregida=request.emocion_corregida,
-            id_tracking=request.id_tracking
-        )
-        return {"status": "ok", "id_correccion": nuevo_id}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error guardando la corrección: {str(e)}")
+
+@app.get("/correcciones/activas")
+async def listar_correcciones_activas():
+    if detector is None:
+        raise HTTPException(status_code=500, detail="Modelos no cargados en el servidor")
+    return {"correcciones": detector.listar_correcciones_memoria()}
+
+
+@app.delete("/correcciones/memoria/{indice}")
+async def eliminar_correccion_memoria(indice: int):
+    if detector is None:
+        raise HTTPException(status_code=500, detail="Modelos no cargados en el servidor")
+    borrado = detector.eliminar_correccion_memoria(indice)
+    if not borrado:
+        raise HTTPException(status_code=404, detail="Corrección no encontrada en memoria")
+    return {"status": "ok", "indice": indice}
 
 
 @app.get("/correcciones/sesion/{session_id}")
@@ -225,19 +239,6 @@ async def listar_correcciones_sesion(session_id: int):
         return {"total": len(ligeras), "correcciones": ligeras}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error consultando correcciones: {str(e)}")
-
-
-@app.delete("/correcciones/{id_correccion}")
-async def eliminar_correccion(id_correccion: int):
-    try:
-        borrado = database.borrar_correccion(id_correccion)
-        if not borrado:
-            raise HTTPException(status_code=404, detail="Corrección no encontrada")
-        return {"status": "ok", "id_correccion": id_correccion}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error borrando la corrección: {str(e)}")
 
 
 if __name__ == "__main__":

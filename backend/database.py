@@ -225,6 +225,23 @@ def guardar_correccion(session_id, hash_video, embedding, segundo_inicio, segund
         return cursor.lastrowid
 
 
+def reemplazar_correcciones_sesion(session_id, hash_video, lista):
+    ahora = datetime.now().isoformat()
+    with get_conexion() as conn:
+        conn.execute("DELETE FROM correcciones WHERE session_id = ?", (session_id,))
+        for c in lista:
+            conn.execute(
+                """
+                INSERT INTO correcciones
+                    (session_id, hash_video, embedding, id_tracking, segundo_inicio, segundo_fin, emocion_corregida, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (session_id, hash_video, embedding_a_texto(c["embedding"]), c.get("id_tracking"),
+                 c["segundo_inicio"], c["segundo_fin"], c["emocion_corregida"], ahora)
+            )
+        return len(lista)
+
+
 def obtener_correcciones_sesion(session_id):
     with get_conexion() as conn:
         filas = conn.execute(
