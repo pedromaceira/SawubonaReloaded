@@ -17,14 +17,26 @@ cache:
     - .cache/pip
   when: always
 
-# ETAPA 1: tests unitarios
+# ETAPA 1: tests (suite rápida: unitarios + integración)
+# Se ejecutan utils, database y api, que no necesitan los modelos de IA.
+# Los tests de detector (Torch) y E2E (Torch + TensorFlow + modelos) se
+# ejecutan en el entorno local con GPU, no en el runner ligero de CI.
 run_tests:
   stage: test
   script:
-    - echo "Instalando SOLO dependencias ligeras para la lógica..."
-    - pip install pytest numpy opencv-python-headless pillow
-    - echo "Ejecutando tests de utilidades matemáticas..."
-    - pytest tests/test_utils.py
+    - echo "Instalando dependencias de test..."
+    - pip install -r requirements-dev.txt
+    - echo "Ejecutando la suite rápida (unitarios + integración) con cobertura..."
+    - pytest --ignore=tests/test_detector.py --ignore=tests/test_e2e.py
+        --cov=backend.utils --cov=backend.database --cov=backend.main
+        --cov-report=term --cov-report=xml
+  coverage: '/(?i)total.*? (100(?:\.0+)?%|[1-9]?\d(?:\.\d+)?%)$/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+    expire_in: 1 week
 
 # ETAPA 2: métricas de calidad
 check_quality:
