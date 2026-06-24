@@ -3,7 +3,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
-from detector import EmotionDetector
+import os
 import database
 
 
@@ -54,14 +54,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-try:
-    detector = EmotionDetector(
-        yolo_path="modelos/yolo11n-face.pt",
-        emotion_model_path="modelos/emotion_model.hdf5"
-    )
-except Exception as e:
-    print(f"Error al cargar los modelos: {e}")
-    detector = None
+detector = None
+if os.environ.get("SAWUBONA_SKIP_MODELS") != "1":
+    try:
+        from detector import EmotionDetector
+        detector = EmotionDetector(
+            yolo_path="modelos/yolo11n-face.pt",
+            emotion_model_path="modelos/emotion_model.hdf5"
+        )
+    except Exception as e:
+        print(f"Error al cargar los modelos: {e}")
+        detector = None
 
 try:
     database.inicializar_db()
@@ -104,6 +107,7 @@ async def analizar_emociones(request: ImageRequest):
         return {"caras_detectadas": len(resultados), "analisis": resultados}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error procesando la imagen: {str(e)}")
+
 
 
 @app.post("/sesiones/crear")
@@ -181,6 +185,7 @@ async def eliminar_sesion(session_id: int):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error borrando la sesión: {str(e)}")
+
 
 
 @app.post("/correcciones/cargar")

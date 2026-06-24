@@ -26,3 +26,7 @@ sawubona_data/
 dist/
 build/
 *.spec
+
+# permitir la cara para pruebas
+!tests/fixtures/
+!tests/fixtures/*.jpg
