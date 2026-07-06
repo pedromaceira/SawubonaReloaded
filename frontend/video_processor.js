@@ -55,6 +55,7 @@ let isAnalyzing = false;
 let enviando = false;
 let sessionData = {};
 let slotsData = [];
+let sesionTerminada = false;
 const DEFAULT_NUM_SLOTS = 10;
 
 const panelCorreccion = document.getElementById('panelCorreccion');
@@ -79,6 +80,22 @@ function formatTime(seconds) {
     return `${m}:${s}`;
 }
 
+function parseTimeInput(str) {
+    if (str === null || str === undefined) return NaN;
+    const limpio = String(str).trim();
+    if (limpio === "") return NaN;
+    if (limpio.includes(":")) {
+        const partes = limpio.split(":");
+        if (partes.length !== 2) return NaN;
+        const min = parseInt(partes[0], 10);
+        const seg = parseFloat(partes[1].replace(',', '.'));
+        if (isNaN(min) || isNaN(seg) || min < 0 || seg < 0 || seg >= 60) return NaN;
+        return min * 60 + seg;
+    }
+    const val = parseFloat(limpio.replace(',', '.'));
+    return isNaN(val) ? NaN : val;
+}
+
 async function calcularHashVideo(file) {
     const buffer = await file.arrayBuffer();
     const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
@@ -93,6 +110,14 @@ const sesionesIntro = document.getElementById('sesionesIntro');
 const btnNuevaSesion = document.getElementById('btnNuevaSesion');
 const btnCancelarSesion = document.getElementById('btnCancelarSesion');
 const nombreNuevaSesion = document.getElementById('nombreNuevaSesion');
+
+const videoTerminadoModalEl = document.getElementById('videoTerminadoModal');
+const videoTerminadoModal = videoTerminadoModalEl ? new bootstrap.Modal(videoTerminadoModalEl) : null;
+const btnModalExportarPDF = document.getElementById('btnModalExportarPDF');
+
+function mostrarModalVideoTerminado() {
+    if (videoTerminadoModal) videoTerminadoModal.show();
+}
 
 async function abrirModalSesiones() {
     if (!sesionesModal || !hashVideoActual) return;
@@ -215,9 +240,14 @@ function renderizarDescartes() {
     ids.forEach(idCara => {
         const info = carasFiltradas[idCara];
         const frames = (info && info.frames !== undefined) ? info.frames : '—';
+        const avatar = avatarsPorCara[idCara];
+        const celdaCara = avatar
+            ? `<img src="${avatar}" style="width: 55px; height: 55px; border-radius: 8px; object-fit: cover; border: 2px solid #dc3545;">
+               <div class="small fw-bold text-danger mt-1">${idCara}</div>`
+            : `<div class="fw-bold text-danger">${idCara}</div>`;
         discardedTable.innerHTML += `<tr>
-            <td class="fw-bold text-danger">${idCara}</td>
-            <td class="small text-muted">Eliminada por ruido (${frames} frames de aparición)</td>
+            <td class="align-middle">${celdaCara}</td>
+            <td class="small text-muted align-middle">Eliminada por ruido (${frames} frames de aparición)</td>
         </tr>`;
     });
 }
@@ -270,20 +300,32 @@ async function cargarSesion(id) {
 
     if (haySnapshot) {
         const segundo = datos.segundo_actual || 0;
-        const colocar = () => {
-            try { video.currentTime = segundo; } catch (e) {}
-            currentTimeDisplay.innerText = formatTime(segundo);
-            if (video.duration) videoProgressBar.style.width = `${(segundo / video.duration) * 100}%`;
-        };
-        if (video.readyState >= 1) colocar();
-        else video.addEventListener('loadedmetadata', colocar, { once: true });
-
         btnConfigurar.classList.add('d-none');
         btnPausar.className = "btn btn-success";
         btnPausar.innerHTML = "Reanudar";
-        btnExportarPDF.classList.add('d-none');
-        console.log(`Sesión ${id} cargada. Reanuda para continuar desde el segundo ${segundo.toFixed(1)}.`);
+
+        const aplicarEstadoSesion = () => {
+            try { video.currentTime = segundo; } catch (e) {}
+            currentTimeDisplay.innerText = formatTime(segundo);
+            if (video.duration) videoProgressBar.style.width = `${(segundo / video.duration) * 100}%`;
+
+            const duracion = video.duration || 0;
+            sesionTerminada = duracion > 0 && segundo >= duracion - 0.3;
+
+            if (sesionTerminada) {
+                btnExportarPDF.classList.remove('d-none');
+                rellenarCabeceraPDF();
+                console.log(`Sesión ${id} cargada y ya finalizada. Consulta los resultados o expórtalos a PDF.`);
+            } else {
+                btnExportarPDF.classList.add('d-none');
+                console.log(`Sesión ${id} cargada. Reanuda para continuar desde el segundo ${segundo.toFixed(1)}.`);
+            }
+        };
+
+        if (video.readyState >= 1) aplicarEstadoSesion();
+        else video.addEventListener('loadedmetadata', aplicarEstadoSesion, { once: true });
     } else {
+        sesionTerminada = false;
         btnConfigurar.classList.remove('d-none');
         btnConfigurar.disabled = false;
         btnPausar.className = "btn btn-warning d-none";
@@ -303,11 +345,62 @@ if (btnNuevaSesion) {
     });
 }
 
+function descartarVideoCargado() {
+    isAnalyzing = false;
+    enviando = false;
+    sesionTerminada = false;
+
+    video.pause();
+    if (video.src) {
+        try { URL.revokeObjectURL(video.src); } catch (e) {}
+    }
+    video.removeAttribute('src');
+    video.load();
+    if (videoInput) videoInput.value = "";
+
+    sessionData = {};
+    slotsData = [];
+    carasFiltradas = {};
+    avatarsPorCara = {};
+    hashVideoActual = null;
+    nombreVideoActual = "";
+    sessionIdActual = null;
+
+    btnConfigurar.classList.remove('d-none');
+    btnConfigurar.disabled = true;
+    btnPausar.className = "btn btn-warning d-none";
+    btnPausar.innerHTML = "Pausar";
+    btnExportarPDF.classList.add('d-none');
+    actualizarBotonGuardarSesion();
+
+    if (panelCorreccion) panelCorreccion.style.display = "none";
+    if (correccionInicio) correccionInicio.value = "";
+    if (correccionFin) correccionFin.value = "";
+    if (correccionFeedback) correccionFeedback.innerText = "";
+    if (listaCorrecciones) listaCorrecciones.innerHTML = '<div class="text-muted small text-center py-2">Aún no hay correcciones guardadas para esta sesión</div>';
+
+    if (facesGalleryGrid) facesGalleryGrid.innerHTML = '<div class="col-12 text-center text-muted py-3">Aún no se han detectado caras</div>';
+    globalAnalyticsTable.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">Sin datos acumulados</td></tr>';
+    slotsTable.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">Configura el análisis para ver los slots</td></tr>';
+    if (discardedTable) discardedTable.innerHTML = '<tr><td colspan="2" class="text-center text-muted py-2">No se ha filtrado ruido aún</td></tr>';
+    if (discardedCount) discardedCount.innerText = "0 descartes";
+
+    overallSentimentText.innerText = "-";
+    faceCountBadge.innerText = "0 Caras";
+    if (faceFilter) faceFilter.innerHTML = '<option value="global">Global (Todas las caras)</option>';
+
+    if (chartGlobalInstance) { chartGlobalInstance.destroy(); chartGlobalInstance = null; }
+    if (canvas.width > 0 && canvas.height > 0) ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    currentTimeDisplay.innerText = "00:00";
+    durationDisplay.innerText = "00:00";
+    videoProgressBar.style.width = "0%";
+}
+
 if (btnCancelarSesion) {
     btnCancelarSesion.addEventListener('click', () => {
-        sessionIdActual = null;
-        actualizarBotonGuardarSesion();
         sesionesModal.hide();
+        descartarVideoCargado();
     });
 }
 
@@ -359,8 +452,8 @@ function actualizarEstadoPanelCorreccion() {
     if (!isAnalyzing && hayCaras) {
         panelCorreccion.style.display = "";
         actualizarSelectorCarasCorreccion();
-        if (correccionInicio.value === "") correccionInicio.value = video.currentTime.toFixed(1);
-        if (correccionFin.value === "") correccionFin.value = video.currentTime.toFixed(1);
+        if (correccionInicio.value === "") correccionInicio.value = formatTime(video.currentTime);
+        if (correccionFin.value === "") correccionFin.value = formatTime(video.currentTime);
         renderListaCorrecciones();
     } else {
         panelCorreccion.style.display = "none";
@@ -379,16 +472,29 @@ async function renderListaCorrecciones() {
             return;
         }
 
-        listaCorrecciones.innerHTML = items.map(c => {
+        const filas = items.map(c => {
             const colorClase = emotionColors[c.emocion_corregida] || 'bg-secondary';
             const cara = (c.id_tracking !== null && c.id_tracking !== undefined) ? `Cara ${c.id_tracking}` : 'Cara —';
-            return `<div class="d-flex align-items-center justify-content-between border-bottom py-1">
-                <span class="small fw-bold text-nowrap" style="color:#fd7e14;">${c.segundo_inicio.toFixed(1)}s – ${c.segundo_fin.toFixed(1)}s</span>
-                <span class="small text-muted mx-2 text-nowrap">${cara}</span>
-                <span class="badge ${colorClase}">${c.emocion_corregida}</span>
-                <button class="btn btn-sm btn-link text-danger p-0 ms-2 btn-borrar-correccion" data-indice="${c.indice}" title="Borrar corrección">🗑</button>
-            </div>`;
+            return `<tr>
+                <td class="small fw-bold text-nowrap align-middle" style="color:#fd7e14;">${formatTime(c.segundo_inicio)} – ${formatTime(c.segundo_fin)}</td>
+                <td class="small text-muted text-nowrap align-middle">${cara}</td>
+                <td class="align-middle"><span class="badge ${colorClase}">${c.emocion_corregida}</span></td>
+                <td class="text-end align-middle d-print-none"><button class="btn btn-sm btn-link text-danger p-0 btn-borrar-correccion" data-indice="${c.indice}" title="Borrar corrección">🗑</button></td>
+            </tr>`;
         }).join('');
+
+        listaCorrecciones.innerHTML = `
+            <table class="table table-sm table-striped mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th class="small">Intervalo</th>
+                        <th class="small">ID</th>
+                        <th class="small">Emoción corregida</th>
+                        <th class="small d-print-none"></th>
+                    </tr>
+                </thead>
+                <tbody>${filas}</tbody>
+            </table>`;
     } catch (err) {
         console.warn("No se pudo cargar la lista de correcciones:", err);
     }
@@ -424,8 +530,33 @@ if (borrarModalEl) {
     borrarModalEl.addEventListener('hidden.bs.modal', () => { idCorreccionABorrar = null; });
 }
 
-if (btnMarcarInicio) btnMarcarInicio.addEventListener('click', () => { correccionInicio.value = video.currentTime.toFixed(1); });
-if (btnMarcarFin) btnMarcarFin.addEventListener('click', () => { correccionFin.value = video.currentTime.toFixed(1); });
+if (btnMarcarInicio) btnMarcarInicio.addEventListener('click', () => { correccionInicio.value = formatTime(video.currentTime); });
+if (btnMarcarFin) btnMarcarFin.addEventListener('click', () => { correccionFin.value = formatTime(video.currentTime); });
+
+function aplicarMascaraTiempo(input) {
+    let digitos = input.value.replace(/\D/g, '');
+    if (digitos.length > 4) digitos = digitos.slice(-4);
+    digitos = digitos.padStart(4, '0');
+    input.value = `${digitos.slice(0, 2)}:${digitos.slice(2, 4)}`;
+}
+
+function ajustarTiempoInput(input) {
+    const partes = input.value.split(':');
+    const mm = parseInt(partes[0], 10) || 0;
+    const ss = parseInt(partes[1], 10) || 0;
+    let total = mm * 60 + ss;
+    if (total < 0) total = 0;
+    const dur = video.duration || 0;
+    if (dur > 0 && total > dur) total = dur;
+    input.value = formatTime(total);
+}
+
+[correccionInicio, correccionFin].forEach(inp => {
+    if (!inp) return;
+    inp.addEventListener('input', () => aplicarMascaraTiempo(inp));
+    inp.addEventListener('blur', () => ajustarTiempoInput(inp));
+    inp.addEventListener('focus', () => { requestAnimationFrame(() => inp.setSelectionRange(inp.value.length, inp.value.length)); });
+});
 
 if (btnGuardarCorreccion) {
     btnGuardarCorreccion.addEventListener('click', async () => {
@@ -438,19 +569,31 @@ if (btnGuardarCorreccion) {
             return;
         }
 
-        const inicio = parseFloat(correccionInicio.value);
-        const fin = parseFloat(correccionFin.value);
+        ajustarTiempoInput(correccionInicio);
+        ajustarTiempoInput(correccionFin);
+        const inicio = parseTimeInput(correccionInicio.value);
+        const fin = parseTimeInput(correccionFin.value);
         const caraSel = correccionCara.value;
         const emocion = correccionEmocion.value;
 
-        if (isNaN(inicio) || isNaN(fin) || inicio < 0 || fin <= inicio) {
+        if (isNaN(inicio) || isNaN(fin)) {
             correccionFeedback.className = "small mt-2 text-danger";
-            correccionFeedback.innerText = "Rango de tiempo no válido (el inicio debe ser menor que el fin).";
+            correccionFeedback.innerText = "Introduce el inicio y el fin en formato mm:ss.";
+            return;
+        }
+        if (inicio < 0) {
+            correccionFeedback.className = "small mt-2 text-danger";
+            correccionFeedback.innerText = "El inicio no puede ser negativo.";
+            return;
+        }
+        if (fin <= inicio) {
+            correccionFeedback.className = "small mt-2 text-danger";
+            correccionFeedback.innerText = `El inicio (${formatTime(inicio)}) debe ser anterior al fin (${formatTime(fin)}).`;
             return;
         }
         if (video.duration && fin > video.duration) {
             correccionFeedback.className = "small mt-2 text-danger";
-            correccionFeedback.innerText = `El fin (${fin}s) excede la duración del vídeo (${video.duration.toFixed(1)}s).`;
+            correccionFeedback.innerText = `El fin (${formatTime(fin)}) supera la duración del vídeo (${formatTime(video.duration)}).`;
             return;
         }
         if (!caraSel) {
@@ -505,6 +648,7 @@ video.addEventListener('timeupdate', () => {
 });
 
 video.addEventListener('play', () => {
+    if (sesionTerminada) { video.pause(); return; }
     if (slotsData.length > 0 && !video.ended && !isAnalyzing) {
         isAnalyzing = true;
         btnPausar.className = "btn btn-warning";
@@ -526,6 +670,7 @@ video.addEventListener('pause', () => {
 });
 
 video.addEventListener('click', () => {
+    if (sesionTerminada) { mostrarModalVideoTerminado(); return; }
     if (slotsData.length === 0 || video.ended) return;
     if (video.paused) {
         video.play();
@@ -633,15 +778,42 @@ if (faceFilter) {
     faceFilter.addEventListener('change', dibujarGraficoGlobal);
 }
 
-btnExportarPDF.addEventListener('click', () => {
+function exportarInformePDF() {
+    const ahora = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const sello = `${ahora.getFullYear()}-${pad(ahora.getMonth() + 1)}-${pad(ahora.getDate())}_${pad(ahora.getHours())}-${pad(ahora.getMinutes())}-${pad(ahora.getSeconds())}`;
+
+    const tituloOriginal = document.title;
+    document.title = `Informe_Sawubona_${sello}`;
+
+    const restaurarTitulo = () => {
+        document.title = tituloOriginal;
+        window.removeEventListener('afterprint', restaurarTitulo);
+    };
+    window.addEventListener('afterprint', restaurarTitulo);
+
     window.print();
-});
+}
+
+btnExportarPDF.addEventListener('click', exportarInformePDF);
+
+if (btnModalExportarPDF) {
+    btnModalExportarPDF.addEventListener('click', () => {
+        if (videoTerminadoModal && videoTerminadoModalEl) {
+            videoTerminadoModalEl.addEventListener('hidden.bs.modal', () => exportarInformePDF(), { once: true });
+            videoTerminadoModal.hide();
+        } else {
+            exportarInformePDF();
+        }
+    });
+}
 
 videoInput.onchange = async (e) => {
     const file = e.target.files[0];
     if (file) {
         isAnalyzing = false;
         enviando = false;
+        sesionTerminada = false;
         video.pause();
 
         btnPausar.className = "btn btn-warning d-none";
@@ -816,6 +988,7 @@ function inicializarSlots() {
 
 btnComenzarReal.onclick = async () => {
     if (inicializarSlots()) {
+        sesionTerminada = false;
         const modalInstance = bootstrap.Modal.getInstance(document.getElementById('configModal'));
         modalInstance.hide();
 
@@ -855,6 +1028,10 @@ btnComenzarReal.onclick = async () => {
 };
 
 btnPausar.onclick = () => {
+    if (sesionTerminada) {
+        mostrarModalVideoTerminado();
+        return;
+    }
     if (isAnalyzing) {
         video.pause();
         isAnalyzing = false;
@@ -920,35 +1097,14 @@ function ejecutarFiltroDeRuido() {
         }
     });
 
-    if (discardedTable && discardedCount) {
-        discardedCount.innerText = `${Object.keys(carasFiltradas).length} descartes`;
-        discardedTable.innerHTML = "";
-        Object.keys(carasFiltradas).forEach(idCara => {
-            const info = carasFiltradas[idCara];
-            discardedTable.innerHTML += `<tr>
-                <td class="fw-bold text-danger">${idCara}</td>
-                <td class="small text-muted">Eliminada por ruido (${info.frames} frames de aparición)</td>
-            </tr>`;
-        });
-    }
+    renderizarDescartes();
+    renderizarGaleriaCaras();
 
     renderizarAnaliticaGlobal({});
     renderizarTablaSlots();
 }
 
-video.onended = () => {
-    isAnalyzing = false;
-    btnPausar.className = "btn btn-warning d-none";
-    btnConfigurar.classList.remove('d-none');
-    btnExportarPDF.classList.remove('d-none');
-
-    finalizarUltimoSlot();
-
-    ejecutarFiltroDeRuido();
-
-    actualizarEstadoPanelCorreccion();
-    actualizarBotonGuardarSesion();
-
+function rellenarCabeceraPDF() {
     const fechaActual = new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
     document.getElementById('pdfDate').innerText = `Fecha: ${fechaActual}`;
     document.getElementById('pdfDuration').innerText = `Duración analizada: ${formatTime(video.duration)}`;
@@ -967,6 +1123,23 @@ video.onended = () => {
         A continuación, se presentan las gráficas y métricas detalladas, mostrando el nivel de coincidencia entre la curva emocional esperada (guion) y las reacciones reales detectadas.
         ${textoRuido}
     `;
+}
+
+video.onended = () => {
+    isAnalyzing = false;
+    sesionTerminada = true;
+    btnPausar.className = "btn btn-warning d-none";
+    btnConfigurar.classList.remove('d-none');
+    btnExportarPDF.classList.remove('d-none');
+
+    finalizarUltimoSlot();
+
+    ejecutarFiltroDeRuido();
+
+    actualizarEstadoPanelCorreccion();
+    actualizarBotonGuardarSesion();
+
+    rellenarCabeceraPDF();
 };
 
 async function procesarFrame() {
@@ -1217,7 +1390,7 @@ function renderizarGaleriaCaras() {
     if (!facesGalleryGrid) return;
     facesGalleryGrid.innerHTML = "";
 
-    const ids = Object.keys(avatarsPorCara);
+    const ids = Object.keys(avatarsPorCara).filter(id => !carasFiltradas[id]);
     if (ids.length === 0) {
         facesGalleryGrid.innerHTML = '<div class="col-12 text-center text-muted py-3">Aún no se han detectado caras</div>';
         return;
