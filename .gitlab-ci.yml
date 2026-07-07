@@ -25,7 +25,7 @@ run_tests:
   stage: test
   script:
     - echo "Instalando dependencias de test..."
-    - pip install -r requirements-dev.txt
+    - pip install uvicorn pytest pytest-cov httpx fastapi numpy opencv-python-headless pillow
     - echo "Ejecutando la suite rápida (unitarios + integración) con cobertura..."
     - pytest --ignore=tests/test_detector.py --ignore=tests/test_e2e.py
         --cov=backend.utils --cov=backend.database --cov=backend.main
