@@ -1,0 +1,8 @@
+uvicorn
+pytest
+pytest-cov
+httpx
+fastapi
+numpy
+opencv-python-headless
+pillow

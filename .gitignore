@@ -60,7 +60,7 @@ estructura.txt
 !tests/fixtures/**
 
 # Documentación
-/docs
+docs/
 
 # Cobertura de tests
 .coverage
