@@ -70,6 +70,7 @@ coverage.xml
 
 # Scripts de pruebas manuales
 prueba_db.py
+requirements-dev.txt
 
 #  No se ignora nada dentro de modelos/, aunque algún archivo
 #  coincidiese con un patrón de arriba.
