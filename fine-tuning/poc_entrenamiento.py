@@ -16,7 +16,7 @@ train_dataset = keras.utils.image_dataset_from_directory(
     color_mode="grayscale",
     image_size=(64, 64),
     batch_size=32,
-    label_mode="categorical" # Usa one-hot encoding, vital para el .hdf5
+    label_mode="categorical" # se usa one-hot encoding, vital para el .hdf5
 )
 
 # 3. NORMALIZAR LOS PÍXELES (De 0-255 a 0.0-1.0)
@@ -29,8 +29,8 @@ print("Cargando el modelo base...")
 modelo = keras.models.load_model(RUTA_MODELO_ACTUAL, compile=False)
 
 # 5. TRANSFER LEARNING: CONGELAR CAPAS INFERIORES
-# Bloqueamos el entrenamiento de casi todas las capas para no romper el detector base
-# Solo dejamos "descongeladas" las últimas 4 capas (las que toman la decisión final)
+# se bloquea el entrenamiento de casi todas las capas para no romper el detector base
+# solo se dejan "descongeladas" las últimas 4 capas (las que toman la decisión final)
 for layer in modelo.layers[:-4]:
     layer.trainable = False
 
@@ -39,7 +39,7 @@ for layer in modelo.layers[-4:]:
 
 print("Compilando el modelo con un Learning Rate microscópico...")
 
-# 6. RECOMPILAR (Con un optimizador súper lento para ajustar con cuidado)
+# 6. RECOMPILAR (con un optimizador súper lento para ajustar con cuidado)
 modelo.compile(
     optimizer=keras.optimizers.Adam(learning_rate=1e-5),
     loss="categorical_crossentropy",
@@ -48,7 +48,7 @@ modelo.compile(
 
 print("Iniciando el reentrenamiento (Fine-Tuning)...")
 
-# 7. ENTRENAR (Pocas épocas, es solo una PoC)
+# 7. ENTRENAR (pocas épocas, es solo una PoC)
 historial = modelo.fit(
     train_dataset,
     epochs=10
