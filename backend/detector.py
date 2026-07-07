@@ -15,7 +15,7 @@ from utils import preprocess_face
 import requests
 import base64
 
-# Poner en False para silenciar el log de diagnostico de deteccion
+# poner en False para silenciar el log de diagnostico de deteccion
 DEBUG_DETECCION = False
 DEBUG_IDENTIDAD = False
 
