@@ -5,12 +5,6 @@
                 "nombre": "corrector_lados",
                 "descripcion": "Evalúa el aspect ratio para rescatar caras de perfil",
                 "url": "http://127.0.0.1:8001/verificar_ratio",
-                "activo": true
-            },
-            {
-                "nombre": "corrector_ojos",
-                "descripcion": "Busca los dos ojos para verificar si un rostro es válido",
-                "url": "http://127.0.0.1:8002/verificar_ojos",
                 "activo": false
             }
         ],

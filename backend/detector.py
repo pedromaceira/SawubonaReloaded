@@ -15,6 +15,10 @@ from utils import preprocess_face
 import requests
 import base64
 
+# Poner en False para silenciar el log de diagnostico de deteccion
+DEBUG_DETECCION = False
+DEBUG_IDENTIDAD = False
+
 gpus = tf.config.list_physical_devices('GPU')
 if gpus:
     try:
@@ -45,7 +49,7 @@ class EmotionDetector:
 
         self.known_faces = []
         self.next_id = 1
-        self.match_threshold = 1.15
+        self.match_threshold = 1.25
 
         self.face_avatars = {}
         self.face_avatars_metrics = {}
@@ -103,6 +107,8 @@ class EmotionDetector:
         if len(self.known_faces) == 0:
             self.known_faces.append((self.next_id, embedding))
             self.next_id += 1
+            if DEBUG_IDENTIDAD:
+                print(f"[ID] NUEVA Cara {self.next_id - 1} (primera cara)")
             return self.next_id - 1
 
         min_dist = float('inf')
@@ -115,10 +121,14 @@ class EmotionDetector:
                 best_id = face_id
 
         if min_dist < self.match_threshold:
+            if DEBUG_IDENTIDAD:
+                print(f"[ID] MATCH Cara {best_id} dist={min_dist:.3f} (umbral={self.match_threshold})")
             return best_id
         else:
             self.known_faces.append((self.next_id, embedding))
             self.next_id += 1
+            if DEBUG_IDENTIDAD:
+                print(f"[ID] NUEVA Cara {self.next_id - 1} dist_min={min_dist:.3f} > umbral={self.match_threshold} (mas parecida: Cara {best_id})")
             return self.next_id - 1
 
     def obtener_embedding_por_id(self, person_id):
@@ -243,27 +253,37 @@ class EmotionDetector:
     def detect_and_classify(self, frame, is_screen_share=False, tiempo_actual=None):
         results_list = []
 
-        umbral_tamano = 30 if is_screen_share else 50
-        umbral_foco = 2.0 if is_screen_share else 5.0
-        umbral_ratio = 0.58 if is_screen_share else 0.67
+        umbral_alto = 30 if is_screen_share else 45
+        umbral_ancho = 20 if is_screen_share else 30
+        umbral_foco = 2.0 if is_screen_share else 2.0
+        umbral_ratio = 0.58 if is_screen_share else 0.50
+        umbral_ratio_max = 1.50
 
         results = self.face_detector.predict(frame, conf=0.20, verbose=False)
+
+        rechazos = {"tamano": 0, "ratio": 0, "foco": 0}
+        aceptadas = 0
+        total_cajas = 0
 
         for r in results:
             boxes = r.boxes.xyxy.cpu().numpy()
 
             for box in boxes:
+                total_cajas += 1
                 x1, y1, x2, y2 = map(int, box)
 
                 ancho = x2 - x1
                 alto = y2 - y1
 
-                if ancho < umbral_tamano or alto < umbral_tamano:
+                if alto < umbral_alto or ancho < umbral_ancho:
+                    rechazos["tamano"] += 1
+                    if DEBUG_DETECCION:
+                        print(f"[DET] RECHAZO tamano  box=({x1},{y1},{x2},{y2}) ancho={ancho} alto={alto} (min ancho={umbral_ancho} alto={umbral_alto})")
                     continue
 
                 aspect_ratio = ancho / alto
 
-                if aspect_ratio < umbral_ratio or aspect_ratio > 1.50:
+                if aspect_ratio < umbral_ratio or aspect_ratio > umbral_ratio_max:
                     cara_rescatada = False
                     modulos_fase_1 = self.config_microservicios.get("microservicios", {}).get("fase_1_correccion", [])
 
@@ -280,6 +300,9 @@ class EmotionDetector:
                                 break
 
                     if not cara_rescatada:
+                        rechazos["ratio"] += 1
+                        if DEBUG_DETECCION:
+                            print(f"[DET] RECHAZO ratio   box=({x1},{y1},{x2},{y2}) ratio={aspect_ratio:.2f} (rango {umbral_ratio}-{umbral_ratio_max})")
                         continue
 
                 face_crop = frame[y1:y2, x1:x2]
@@ -290,8 +313,12 @@ class EmotionDetector:
                 focus_measure = cv2.Laplacian(gray_face, cv2.CV_64F).var()
 
                 if focus_measure < umbral_foco:
+                    rechazos["foco"] += 1
+                    if DEBUG_DETECCION:
+                        print(f"[DET] RECHAZO foco    box=({x1},{y1},{x2},{y2}) foco={focus_measure:.2f} (umbral={umbral_foco})")
                     continue
 
+                aceptadas += 1
                 person_id = self.get_face_id(face_crop)
 
                 score_calidad = focus_measure * (ancho * alto)
@@ -331,5 +358,8 @@ class EmotionDetector:
                     result_dict["avatar"] = self.face_avatars[person_id]
 
                 results_list.append(result_dict)
+
+        if DEBUG_DETECCION and total_cajas > 0:
+            print(f"[DET] frame -> YOLO={total_cajas} aceptadas={aceptadas} | rechazos tam={rechazos['tamano']} ratio={rechazos['ratio']} foco={rechazos['foco']}")
 
         return results_list

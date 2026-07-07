@@ -377,7 +377,7 @@ function descartarVideoCargado() {
     if (correccionInicio) correccionInicio.value = "";
     if (correccionFin) correccionFin.value = "";
     if (correccionFeedback) correccionFeedback.innerText = "";
-    if (listaCorrecciones) listaCorrecciones.innerHTML = '<div class="text-muted small text-center py-2">Aún no hay correcciones guardadas para esta sesión</div>';
+    if (listaCorrecciones) listaCorrecciones.innerHTML = '<div class="text-muted small text-center py-2">Aún no hay correcciones en esta sesión</div>';
 
     if (facesGalleryGrid) facesGalleryGrid.innerHTML = '<div class="col-12 text-center text-muted py-3">Aún no se han detectado caras</div>';
     globalAnalyticsTable.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">Sin datos acumulados</td></tr>';
@@ -431,7 +431,7 @@ if (listaSesiones) {
 function actualizarSelectorCarasCorreccion() {
     if (!correccionCara) return;
     const seleccionActual = correccionCara.value;
-    const ids = Object.keys(avatarsPorCara);
+    const ids = Object.keys(avatarsPorCara).filter(id => !carasFiltradas[id]);
     correccionCara.innerHTML = "";
     if (ids.length === 0) {
         correccionCara.innerHTML = '<option value="">Sin caras detectadas</option>';
@@ -837,7 +837,7 @@ videoInput.onchange = async (e) => {
         if (correccionInicio) correccionInicio.value = "";
         if (correccionFin) correccionFin.value = "";
         if (correccionFeedback) correccionFeedback.innerText = "";
-        if (listaCorrecciones) listaCorrecciones.innerHTML = '<div class="text-muted small text-center py-2">Aún no hay correcciones guardadas para esta sesión</div>';
+        if (listaCorrecciones) listaCorrecciones.innerHTML = '<div class="text-muted small text-center py-2">Aún no hay correcciones en esta sesión</div>';
 
         if (facesGalleryGrid) {
             facesGalleryGrid.innerHTML = '<div class="col-12 text-center text-muted py-3">Aún no se han detectado caras</div>';

@@ -1,32 +1,68 @@
-# archivos compilados
+# ----- Python -----
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
+*.pyd
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
 
-# archivos del sistema
-.DS_Store
-Thumbs.db
-
-# entorno virtual
+# ----- Entorno virtual -----
 envTFG/
-envTFG/*
+venv/
+.venv/
+env/
 
-# archivos temporales
-*.mov
-*.mp4
-*.png
-*.jpg
+# ----- Variables de entorno / secretos -----
 .env
+*.env
 
-# archivos BD
+# ----- Base de datos y datos generados en ejecución -----
 *.db
+*.sqlite
+*.sqlite3
 sawubona_data/
 
-# Ignorar carpetas de empaquetado de PyInstaller
-dist/
+# ----- Empaquetado (PyInstaller) -----
 build/
+dist/
 *.spec
 
-# permitir la cara para pruebas
+# ----- Sistema operativo -----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ----- IDE -----
+.vscode/
+.idea/
+*.swp
+
+# ----- Logs y temporales -----
+*.log
+estructura.txt
+
+# ----- Media pesada de pruebas (vídeos y capturas sueltas) -----
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.png
+*.jpg
+*.jpeg
+*.gif
+
+# Imágenes de documentación / README SÍ se suben
+!assets/
+!assets/**
+# Fixtures de tests SÍ se suben
 !tests/fixtures/
-!tests/fixtures/*.jpg
+!tests/fixtures/**
+
+# Documentación
+/docs
+
+#  No se ignora nada dentro de modelos/, aunque algún archivo
+#  coincidiese con un patrón de arriba.
+!modelos/
+!modelos/**

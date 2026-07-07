@@ -125,6 +125,32 @@ async function iniciarSesion(usarPantalla = false) {
 startBtn.onclick = () => iniciarSesion(false);
 startScreenBtn.onclick = () => iniciarSesion(true);
 
+if (faceFilter) faceFilter.addEventListener('change', dibujarGraficoGlobal);
+
+function renderizarDescartes() {
+    if (!discardedTable || !discardedCount) return;
+    const ids = Object.keys(carasFiltradas);
+    discardedCount.innerText = `${ids.length} descartes`;
+    if (ids.length === 0) {
+        discardedTable.innerHTML = '<tr><td colspan="2" class="text-center text-muted py-2">No se ha filtrado ruido aún</td></tr>';
+        return;
+    }
+    discardedTable.innerHTML = "";
+    ids.forEach(idCara => {
+        const info = carasFiltradas[idCara];
+        const frames = (info && info.frames !== undefined) ? info.frames : '—';
+        const avatar = avatarsPorCara[idCara];
+        const celdaCara = avatar
+            ? `<img src="${avatar}" style="width: 55px; height: 55px; border-radius: 8px; object-fit: cover; border: 2px solid #dc3545;">
+               <div class="small fw-bold text-danger mt-1">${idCara}</div>`
+            : `<div class="fw-bold text-danger">${idCara}</div>`;
+        discardedTable.innerHTML += `<tr>
+            <td class="align-middle">${celdaCara}</td>
+            <td class="small text-muted align-middle">Eliminada por ruido (${frames} frames)</td>
+        </tr>`;
+    });
+}
+
 function ejecutarFiltroDeRuido() {
     let ruidoDetectado = false;
     let carasInvalidas = [];
@@ -156,17 +182,8 @@ function ejecutarFiltroDeRuido() {
         });
     });
 
-    if (discardedTable && discardedCount) {
-        discardedCount.innerText = `${Object.keys(carasFiltradas).length} descartes`;
-        discardedTable.innerHTML = "";
-        Object.keys(carasFiltradas).forEach(idCara => {
-            const info = carasFiltradas[idCara];
-            discardedTable.innerHTML += `<tr>
-                <td class="fw-bold text-danger">${idCara}</td>
-                <td class="small text-muted">Eliminada por ruido (${info.frames} frames)</td>
-            </tr>`;
-        });
-    }
+    renderizarDescartes();
+    renderizarGaleriaCaras();
 
     actualizarTablaGlobal({}); 
     dibujarGraficoGlobal();
@@ -444,7 +461,7 @@ function renderizarGaleriaCaras() {
     if (!facesGalleryGrid) return;
     facesGalleryGrid.innerHTML = "";
     
-    const ids = Object.keys(avatarsPorCara);
+    const ids = Object.keys(avatarsPorCara).filter(id => !carasFiltradas[id]);
     if (ids.length === 0) {
         facesGalleryGrid.innerHTML = '<div class="col-12 text-center text-muted py-3">Aún no se han detectado caras</div>';
         return;
